@@ -1,0 +1,19 @@
+[package]
+name = "spotifai"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "A Rust CLI for managing your Spotify library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify integration)."
+repository = "https://github.com/niclaslindstedt/spotifai"
+readme = "README.md"
+
+[[bin]]
+name = "spotifai"
+path = "src/main.rs"
+
+[lib]
+name = "spotifai"
+path = "src/lib.rs"
+
+[dependencies]
