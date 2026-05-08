@@ -98,6 +98,17 @@ impl Provider {
         }
     }
 
+    /// Flag name `zad <provider> playlists create` accepts for the
+    /// new playlist's display name. Spotify takes `--name`; YouTube
+    /// Music takes `--title`. Kept on the [`Provider`] enum so
+    /// [`crate::import`] stays provider-agnostic.
+    pub fn playlist_name_flag(self) -> &'static str {
+        match self {
+            Provider::Spotify => "--name",
+            Provider::YouTubeMusic => "--title",
+        }
+    }
+
     /// Human-readable provider name used in agent prompts and CLI
     /// banners. Capitalised and spelled the way the upstream service
     /// markets itself.

@@ -79,6 +79,12 @@ spotifai playlist "a 30-minute focus playlist with no vocals"
 
 # Build a new YouTube Music playlist.
 spotifai playlist --provider ymusic "an upbeat 45-minute commute playlist"
+
+# Migrate your Spotify library to YouTube Music — playlists are recreated
+# on the target, with tracks resolved by ISRC (then title + artist) on the
+# new provider. Existing playlists with the same name are skipped, so re-runs
+# are idempotent.
+spotifai export --provider spotify | spotifai import --provider ymusic
 ```
 
 ## Usage
@@ -107,11 +113,17 @@ Commands:
   export             Dump the user's library on the active provider into
                      one JSON document. --provider selects the backend;
                      --output PATH writes to a file instead of stdout.
+  import             Recreate playlists from a `spotifai export` envelope
+                     on the active provider. Reads stdin or --input PATH.
+                     Cross-provider migrations resolve tracks via ISRC
+                     then title+artist search; same-provider re-imports
+                     reuse the embedded IDs. Existing playlists with the
+                     same name are skipped.
   help               Print help for a command
 
 Options:
       --provider <slug>   Backing provider for the surface (spotify | ymusic).
-                          Default: spotify. Available on auth/ask/playlist/export.
+                          Default: spotify. Available on auth/ask/playlist/export/import.
       --version           Print version
 ```
 

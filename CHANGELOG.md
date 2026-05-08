@@ -17,6 +17,15 @@ do not edit manually.
   and `export`; default stays `spotify`. The provider abstraction in
   `src/providers.rs` is sized so additional backends drop in by adding
   one enum variant + one default-policy helper.
+- `spotifai import` subcommand: recreate playlists from a `spotifai export`
+  envelope on the active provider. Reads JSON from stdin (so
+  `spotifai export | spotifai import --provider …` works) or from
+  `--input PATH`. Same-provider re-imports reuse the embedded
+  `spotify_id` / `video_id`; cross-provider migrations resolve each
+  track on the target via `zad <provider> search` (ISRC first, then
+  title + primary artist). Playlists whose name already exists on the
+  target are skipped, making re-runs idempotent. Reuses the existing
+  `playlist` permission profile — no new install/sign step.
 
 ### Changed
 

@@ -29,6 +29,7 @@ Adding another provider is a single change in `src/providers.rs` and is picked u
 | `ask`      | Read-only zag session about the user's library on the active provider, with `~/.spotifai/permissions/<provider>/ask.toml` injected into the system prompt. |
 | `playlist` | zag session that builds one new playlist for the user on the active provider, with `~/.spotifai/permissions/<provider>/playlist.toml` injected. Adds `playlists create`, `playlists add`, and `playlists rename`; destructive verbs stay denied. |
 | `export`   | Dump the user's library on the active provider — liked tracks/videos, saved albums (Spotify only), and playlists with full ordered track lists — into one structured JSON document. Designed to be portable enough to re-import on another music service later. Defaults to stdout; `--output` redirects to a file. |
+| `import`   | Recreate playlists from a `spotifai export` envelope on the active provider. Reads from stdin by default or `--input PATH`. Same-provider re-imports reuse the embedded IDs; cross-provider migrations (e.g. Spotify → YouTube Music) resolve each track on the target via `zad <provider> search` (ISRC first, then title + primary artist). Existing playlists with the same name are skipped. |
 | `help`     | Show help text. |
 
 ### `spotifai install`
@@ -92,6 +93,18 @@ Walk the user's library on the active provider and write one JSON document conta
 
 The JSON document goes to stdout by default; status messages always go to stderr so `spotifai export | jq …` and `spotifai export > library.json` work as expected. The envelope's `source.service` field carries the provider slug (`spotify` / `ymusic`); Spotify exports populate `liked_tracks` and `saved_albums`, while YouTube Music exports populate `liked_videos` and leave the album bucket out (the YouTube Data API has no "saved albums" concept). See [`export.md`](export.md) for the full reference, including the envelope schema.
 
+### `spotifai import`
+
+Recreate playlists from a `spotifai export` envelope on the active provider. The canonical migration form is one pipeline (`spotifai export --provider spotify | spotifai import --provider ymusic`), but the envelope can also be read from `--input PATH`. Same-provider re-imports reuse the embedded `spotify_id` / `video_id` directly; cross-provider migrations resolve each track on the target via `zad <provider> search` — ISRC first, then a title + primary-artist text fallback. Items that match neither query are reported as unresolved and skipped. Playlists whose name already exists on the target are skipped with a warning, which makes re-runs idempotent. Reuses the `playlist` permission profile (no new profile to scaffold or sign). Liked tracks, liked videos, and saved albums in the envelope are intentionally ignored.
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--provider <slug>` | enum | `spotify` | Backing provider to import the playlists onto. One of `spotify`, `ymusic`. |
+| `--input PATH`, `-i PATH` | path | — | Read the envelope from this file. Without it, the envelope is read from stdin. |
+| `--dry-run` | bool | false | Preview what would be created without making any zad write calls. The duplicate-name pre-fetch and any cross-provider search calls still run. |
+
+Per-playlist or per-track failures inside the loop accumulate into the final summary on stderr and do not abort the import. The command exits 0 unless a fatal error (input parse, schema mismatch, install failure) prevents the loop from running. See [`import.md`](import.md) for the full reference.
+
 ## Flags
 
 | Flag | Type | Default | Description |
@@ -121,6 +134,7 @@ spotifai --help
 spotifai ask "What are my most-played albums?"
 spotifai playlist --provider ymusic "an upbeat 45-minute commute playlist"
 spotifai export --provider ymusic --pretty -o ~/backups/ymusic.json
+spotifai export --provider spotify | spotifai import --provider ymusic --dry-run
 spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
 ```
 
@@ -131,5 +145,6 @@ spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
 - [`ask.md`](ask.md) — `spotifai ask` reference
 - [`playlist.md`](playlist.md) — `spotifai playlist` reference
 - [`export.md`](export.md) — `spotifai export` reference
+- [`import.md`](import.md) — `spotifai import` reference
 - `spotifai commands`
 - `spotifai docs`

@@ -5,6 +5,7 @@ pub mod ask;
 pub mod auth;
 pub mod cli;
 pub mod export;
+pub mod import;
 pub mod install;
 pub mod output;
 pub mod permissions;
