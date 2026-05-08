@@ -53,6 +53,7 @@ spotifai ask "Create a playlist called Morning Run with upbeat tracks"
 spotifai <command> [options]
 
 Commands:
+  install       Download and install the pinned zad binary into ~/.spotifai/bin
   auth          Authenticate with Spotify (OAuth flow)
   ask <query>   Send a natural-language query to the agent
   help          Print help for a command
