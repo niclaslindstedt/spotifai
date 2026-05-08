@@ -159,7 +159,14 @@ fn read_or_default_parses_existing_file() {
 
 #[test]
 fn default_path_lives_under_dot_spotifai_home_dir() {
+    use std::path::Path;
+
     let path = permissions::default_path().unwrap();
-    let s = path.to_string_lossy();
-    assert!(s.ends_with(".spotifai/permissions.toml"), "path = {s}");
+    // Compare path components rather than string slices so the test
+    // is portable across `/` (Unix) and `\` (Windows) separators.
+    assert!(
+        path.ends_with(Path::new(".spotifai").join("permissions.toml")),
+        "path = {}",
+        path.display()
+    );
 }
