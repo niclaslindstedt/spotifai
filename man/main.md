@@ -21,6 +21,7 @@ _What this command does and when to reach for it._
 | `api`      | Forward to `zad spotify …` after verifying the pinned zad binary. Requires the active profile (set by `ask` or `playlist`); direct shell invocations error out. The forwarded child gets `ZAD_PERMISSIONS_PATH` pinned to the matching `~/.spotifai/permissions/<profile>.toml`. |
 | `ask`      | Read-only zag session about the user's Spotify library, with `~/.spotifai/permissions/ask.toml` injected into the system prompt. |
 | `playlist` | zag session that builds one new playlist for the user, with `~/.spotifai/permissions/playlist.toml` injected. Adds `playlists create`, `playlists add`, and `playlists rename`; destructive verbs stay denied. |
+| `export`   | Dump the user's Spotify library — liked tracks, saved albums, and playlists with full ordered track lists — into one structured JSON document. Designed to be portable enough to re-import on another music service later. Defaults to stdout; `--output` redirects to a file. |
 | `help`     | Show help text. |
 
 ### `spotifai install`
@@ -64,6 +65,17 @@ Start an interactive zag session pre-loaded to build a new Spotify playlist for 
 
 Like `ask`, the agent in `playlist` only talks to Spotify through `spotifai api …` and is instructed not to widen the policy itself. Edit `~/.spotifai/permissions/playlist.toml` and re-run `spotifai install` to resign the file when you change `allowed` / `denied`.
 
+### `spotifai export`
+
+Walk the user's Spotify library and write one JSON document containing every record needed to recreate the library elsewhere — liked tracks, saved albums, and playlists with full ordered track lists. Reuses the read-only `ask` permission profile (no new profile to scaffold or sign). Records are embedded verbatim under the envelope, so any identifier zad already exposes (`isrc`, `spotify_id`, `added_at`, position, duration, …) flows through to a future importer.
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--output PATH`, `-o PATH` | path | — | Write the JSON document to this file instead of stdout. Parent directories are created if needed. |
+| `--pretty` | bool | false | Pretty-print the JSON with two-space indent. |
+
+The JSON document goes to stdout by default; status messages always go to stderr so `spotifai export | jq …` and `spotifai export > library.json` work as expected. See [`export.md`](export.md) for the full reference, including the envelope schema.
+
 ## Flags
 
 | Flag | Type | Default | Description |
@@ -96,5 +108,6 @@ spotifai --help
 - [`api.md`](api.md) — `spotifai api` reference
 - [`ask.md`](ask.md) — `spotifai ask` reference
 - [`playlist.md`](playlist.md) — `spotifai playlist` reference
+- [`export.md`](export.md) — `spotifai export` reference
 - `spotifai commands`
 - `spotifai docs`

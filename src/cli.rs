@@ -16,7 +16,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::permissions::Profile;
-use crate::{api, ask, auth, install, output, permissions, playlist};
+use crate::{api, ask, auth, export, install, output, permissions, playlist};
 
 #[derive(Debug, Parser)]
 #[command(name = "spotifai", version, about, long_about = None)]
@@ -74,6 +74,17 @@ pub enum Command {
     /// passed through verbatim to zad — `--client-id`,
     /// `--no-browser`, `--non-interactive`, etc.
     Auth(AuthArgs),
+
+    /// Dump the user's Spotify library — liked tracks, saved
+    /// albums, and playlists with full track lists and ordering —
+    /// into one structured JSON document.
+    ///
+    /// Designed to be portable enough to re-import on another
+    /// music service later. Reuses the read-only `ask` permission
+    /// profile. Defaults to stdout; `--output` redirects to a
+    /// file. Status messages always go to stderr so the JSON on
+    /// stdout stays pipe-clean.
+    Export(ExportArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -116,6 +127,20 @@ pub struct AuthArgs {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, clap::Args)]
+pub struct ExportArgs {
+    /// Write the JSON document to this path instead of stdout.
+    /// Parent directories are created if needed.
+    #[arg(long, short = 'o')]
+    pub output: Option<std::path::PathBuf>,
+
+    /// Pretty-print the JSON with two-space indent. Without this
+    /// flag the document is one dense line, which is what most
+    /// downstream tooling (importers, diffs) prefers.
+    #[arg(long)]
+    pub pretty: bool,
+}
+
 /// Entry point invoked by `main.rs`.
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -145,6 +170,7 @@ pub fn run() -> Result<()> {
             playlist::run(query.as_deref())
         }
         Some(Command::Auth(args)) => auth::run(&args.args),
+        Some(Command::Export(args)) => export::run(args.output.as_deref(), args.pretty),
     }
 }
 
