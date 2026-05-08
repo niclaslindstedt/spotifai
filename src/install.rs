@@ -245,12 +245,7 @@ pub fn sign_permissions_file(zad: &Path, policy_path: &Path) -> Result<()> {
         .args(["spotify", "permissions", "sign", "--local"])
         .env(ZAD_PERMISSIONS_PATH_ENV, policy_path)
         .output()
-        .with_context(|| {
-            format!(
-                "running {} spotify permissions sign --local",
-                zad.display()
-            )
-        })?;
+        .with_context(|| format!("running {} spotify permissions sign --local", zad.display()))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         bail!(

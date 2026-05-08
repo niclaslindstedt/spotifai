@@ -88,7 +88,10 @@ fn parse_fingerprint_returns_none_when_absent_or_malformed() {
 fn signing_init_command_is_zad_signing_init_with_json_flag() {
     let zad = PathBuf::from("/tmp/zad");
     let cmd = build_signing_init_command(&zad);
-    let argv: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+    let argv: Vec<_> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
     assert_eq!(argv, vec!["signing", "init", "--json"]);
     // Program path is the zad binary we passed in.
     assert_eq!(cmd.get_program(), zad.as_os_str());
@@ -100,7 +103,10 @@ fn permissions_sign_command_uses_local_and_pins_env_var() {
     let policy = PathBuf::from("/tmp/permissions.toml");
     let cmd = build_permissions_sign_command(&zad, &policy);
 
-    let argv: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().to_string()).collect();
+    let argv: Vec<_> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
     assert_eq!(
         argv,
         vec!["spotify", "permissions", "sign", "--local"],
