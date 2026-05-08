@@ -20,7 +20,9 @@ Before exec'ing zad, spotifai performs the same install/version check as `spotif
 
 Zad's stdout, stderr, and exit code are propagated verbatim — `spotifai api` returns whatever zad returned.
 
-The forwarded zad process is launched with `ZAD_PERMISSIONS_PATH=~/.spotifai/permissions.toml`. zad ≥ 0.3.0 honours this variable as an explicit local-permissions override, so the spotifai-managed policy file applies regardless of which directory `spotifai api` is invoked from — there is no cwd-dependent project slug to worry about.
+`spotifai api` requires a parent spotifai command to have selected a permission profile. `spotifai ask` and `spotifai playlist` set `SPOTIFAI_PROFILE` to `ask` or `playlist` respectively before launching zag; child shells then inherit the variable when the agent runs `spotifai api …`. Direct invocations from a user shell exit with a usage error (code `2`) — there is intentionally no implicit default. To call zad outside spotifai, run `~/.spotifai/bin/zad spotify …` and set `ZAD_PERMISSIONS_PATH` yourself.
+
+The forwarded zad process is always launched with `ZAD_PERMISSIONS_PATH` pinned at the matching `~/.spotifai/permissions/<profile>.toml`. spotifai overrides any inherited `ZAD_PERMISSIONS_PATH` so an agent cannot escalate by setting the zad variable itself before invoking the shim. zad ≥ 0.3.0 honours this variable as an explicit local-permissions override, so the spotifai-managed policy file applies regardless of which directory `spotifai api` is invoked from.
 
 ## Arguments
 
@@ -38,21 +40,22 @@ spotifai api --help
 
 ## Environment variables
 
-`spotifai api` does not read any environment variables of its own. The forwarded zad process inherits the current environment, so any variables zad consults (Spotify OAuth tokens, keychain hints, etc.) are honoured.
+`spotifai api` reads one variable of its own and sets one on the forwarded child:
 
-Spotifai sets one variable on the forwarded child:
-
-| Variable | Set to | Why |
+| Variable | Read / set | Description |
 |---|---|---|
-| `ZAD_PERMISSIONS_PATH` | `~/.spotifai/permissions.toml` | Pins zad's local-permissions lookup to the spotifai-managed file so the same policy applies in every cwd. zad ≥ 0.3.0 reads this variable as an explicit override that bypasses the cwd-derived project slug. If the user has already exported `ZAD_PERMISSIONS_PATH`, spotifai's value wins for the duration of the forwarded process. |
+| `SPOTIFAI_PROFILE` | read | Selects which `~/.spotifai/permissions/<profile>.toml` to point zad at. Set by `spotifai ask` (`ask`) and `spotifai playlist` (`playlist`) on the user's behalf. Treated as an internal coupling, not a user knob: missing or unknown values fail with a usage error. |
+| `ZAD_PERMISSIONS_PATH` | set | Forwarded to the zad child as `~/.spotifai/permissions/<profile>.toml`, where `<profile>` is whatever `SPOTIFAI_PROFILE` resolved to. Always overrides any inherited value so an agent cannot escalate by setting the zad variable itself before invoking the shim. zad ≥ 0.3.0 reads this variable as an explicit override that bypasses the cwd-derived project slug. |
+
+The forwarded zad process otherwise inherits the current environment, so any variables zad itself consults (Spotify OAuth tokens, keychain hints, etc.) are honoured.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0   | zad exited successfully. |
-| 1   | Generic spotifai error (download/install failure, missing home directory, version mismatch after re-download). |
-| 2   | Usage error parsing `spotifai api` itself. |
+| 1   | Generic spotifai error (download/install failure, missing home directory, version mismatch after re-download, missing per-profile permissions file). |
+| 2   | Usage error parsing `spotifai api` itself, or `SPOTIFAI_PROFILE` is unset / unknown. |
 | *N* | Any other code is propagated verbatim from `zad spotify …`. |
 
 ## Examples
@@ -85,5 +88,7 @@ spotifai api -- tracks --limit=10
 
 - [`main.md`](main.md) — top-level `spotifai` reference
 - [`auth.md`](auth.md) — register Spotify OAuth credentials before running `api …`
+- [`ask.md`](ask.md) — read-only agent surface that drives `spotifai api` for you
+- [`playlist.md`](playlist.md) — playlist-builder agent surface
 - [`spotifai install`](main.md#spotifai-install) — the same install/version check, run on its own
 - [`.zadrc`](../.zadrc) — pinned zad release tag

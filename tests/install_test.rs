@@ -99,23 +99,27 @@ fn signing_init_command_is_zad_signing_init_with_json_flag() {
 
 #[test]
 fn permissions_sign_command_uses_local_and_pins_env_var() {
-    let zad = PathBuf::from("/tmp/zad");
-    let policy = PathBuf::from("/tmp/permissions.toml");
-    let cmd = build_permissions_sign_command(&zad, &policy);
+    // Exercise both per-profile paths since the install flow now signs
+    // each one; the underlying command builder must accept either.
+    for filename in ["ask.toml", "playlist.toml"] {
+        let zad = PathBuf::from("/tmp/zad");
+        let policy = PathBuf::from(format!("/tmp/permissions/{filename}"));
+        let cmd = build_permissions_sign_command(&zad, &policy);
 
-    let argv: Vec<_> = cmd
-        .get_args()
-        .map(|a| a.to_string_lossy().to_string())
-        .collect();
-    assert_eq!(
-        argv,
-        vec!["spotify", "permissions", "sign", "--local"],
-        "the install flow signs the local file pinned via {ZAD_PERMISSIONS_PATH_ENV}"
-    );
+        let argv: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(
+            argv,
+            vec!["spotify", "permissions", "sign", "--local"],
+            "the install flow signs each profile file pinned via {ZAD_PERMISSIONS_PATH_ENV}"
+        );
 
-    let env = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV)
-        .expect("ZAD_PERMISSIONS_PATH must be set so zad signs the spotifai-managed file");
-    assert_eq!(env, policy.as_os_str());
+        let env = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV)
+            .expect("ZAD_PERMISSIONS_PATH must be set so zad signs the per-profile file");
+        assert_eq!(env, policy.as_os_str());
+    }
 }
 
 #[test]

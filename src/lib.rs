@@ -7,6 +7,8 @@ pub mod cli;
 pub mod install;
 pub mod output;
 pub mod permissions;
+pub mod playlist;
+pub mod session;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

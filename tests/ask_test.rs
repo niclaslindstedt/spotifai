@@ -2,7 +2,7 @@
 //! permissions injection. No tokio runtime, no zag spawn.
 
 use spotifai::ask::{ASK_PROMPT_RAW, extract_system_section, render_system_prompt};
-use spotifai::permissions::Permissions;
+use spotifai::permissions::ask_default;
 
 #[test]
 fn extract_system_section_strips_yaml_front_matter() {
@@ -63,7 +63,7 @@ fn extract_system_section_falls_back_to_raw_body_when_marker_missing() {
 
 #[test]
 fn render_system_prompt_substitutes_permissions_block() {
-    let policy = Permissions::read_only_default();
+    let policy = ask_default();
     let rendered = render_system_prompt(ASK_PROMPT_RAW, &policy);
 
     assert!(
@@ -84,7 +84,7 @@ fn render_system_prompt_substitutes_permissions_block() {
 
 #[test]
 fn render_system_prompt_mentions_spotifai_api_usage() {
-    let policy = Permissions::read_only_default();
+    let policy = ask_default();
     let rendered = render_system_prompt(ASK_PROMPT_RAW, &policy);
 
     // The agent must be told it talks to Spotify through `spotifai
@@ -99,4 +99,19 @@ fn render_system_prompt_mentions_spotifai_api_usage() {
             || rendered.contains("do not call the Spotify Web API"),
         "rendered prompt missing the no-direct-Spotify guard:\n{rendered}"
     );
+}
+
+#[test]
+fn rendered_prompt_does_not_leak_profile_env_var_name() {
+    // The agent must not learn that profile selection is mediated by
+    // an env var, otherwise a sufficiently clever model could try to
+    // escalate by spawning `spotifai api` with a different profile.
+    let policy = ask_default();
+    let rendered = render_system_prompt(ASK_PROMPT_RAW, &policy);
+    for needle in ["SPOTIFAI_PROFILE", "ZAD_PERMISSIONS_PATH"] {
+        assert!(
+            !rendered.contains(needle),
+            "rendered prompt leaks env var name `{needle}`:\n{rendered}"
+        );
+    }
 }

@@ -3,8 +3,10 @@
 use std::path::PathBuf;
 
 use spotifai::api::{
-    ZAD_PERMISSIONS_PATH_ENV, build_command, command_env, forward_args, permissions_env_value,
+    SPOTIFAI_PROFILE_ENV, ZAD_PERMISSIONS_PATH_ENV, build_command, command_env, forward_args,
+    resolve_permissions_path,
 };
+use spotifai::permissions::Profile;
 
 #[test]
 fn forward_args_prefixes_spotify_subcommand() {
@@ -74,13 +76,42 @@ fn permissions_env_var_constant_matches_zad() {
 }
 
 #[test]
-fn permissions_env_value_points_at_spotifai_home() {
-    let p = permissions_env_value().expect("resolving permissions path");
-    let s = p.to_string_lossy();
-    assert!(
-        s.ends_with("/.spotifai/permissions.toml") || s.ends_with("\\.spotifai\\permissions.toml"),
-        "unexpected permissions path: {s}"
-    );
+fn profile_env_constant_is_spotifai_namespaced() {
+    // The selector lives under spotifai's namespace because
+    // `spotifai api` resolves the file before forwarding to zad —
+    // zad never sees this variable.
+    assert_eq!(SPOTIFAI_PROFILE_ENV, "SPOTIFAI_PROFILE");
+}
+
+#[test]
+fn resolve_permissions_path_errors_when_file_missing() {
+    // Neither profile file should exist under HOME during a fresh
+    // test run; assert that resolve_permissions_path fails closed.
+    // (If a developer happens to have spotifai installed on their
+    // machine, both files will exist and the call will succeed —
+    // which is also a valid outcome to assert against.)
+    for &profile in Profile::ALL {
+        match resolve_permissions_path(profile) {
+            Ok(path) => {
+                let s = path.to_string_lossy();
+                assert!(
+                    s.contains(&format!(".spotifai/permissions/{}.toml", profile.as_str()))
+                        || s.contains(&format!(
+                            ".spotifai\\permissions\\{}.toml",
+                            profile.as_str()
+                        )),
+                    "resolved path should sit under .spotifai/permissions/, got {s}"
+                );
+            }
+            Err(e) => {
+                let msg = format!("{e:#}");
+                assert!(
+                    msg.contains("spotifai install"),
+                    "missing-file error should point at `spotifai install`, got: {msg}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

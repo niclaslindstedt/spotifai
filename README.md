@@ -8,8 +8,8 @@ A Rust CLI for managing your Spotify library and playlists via natural-language 
 ## Why?
 
 - Ask about your library and playlists in plain language — no memorising API endpoints
-- Create, rename, and delete playlists from the terminal in a single command
-- Remove or reorder tracks without opening a browser
+- Build new playlists conversationally with `spotifai playlist`, while `spotifai ask` stays read-only
+- Per-command permission profiles, signed at install time, so the agent can only use the verbs each surface needs
 - Zero duplicated agent or Spotify integration code — delegates entirely to zag and zad
 - Composable with shell scripts and other CLI tools for automation
 
@@ -39,9 +39,10 @@ make build
 ```sh
 # Walk the four-step guided setup: install the pinned zad binary into
 # ~/.spotifai/bin, bootstrap the local Ed25519 signing key in your OS
-# keychain, write a default read-only permissions file at
-# ~/.spotifai/permissions.toml, and sign it so zad's load-time trust
-# check accepts it. Re-run after editing the permissions file to resign.
+# keychain, scaffold the per-profile permissions files under
+# ~/.spotifai/permissions/ (ask.toml is read-only; playlist.toml adds
+# create/add/rename), and sign each one. Re-run after editing any
+# profile file to resign.
 spotifai install
 
 # Authenticate with Spotify (opens browser for the OAuth 2.0 PKCE flow).
@@ -49,12 +50,15 @@ spotifai install
 # credential applies to every directory you later run `spotifai api …` from.
 spotifai auth
 
-# Ask a natural-language question about your library — the agent talks
-# to Spotify only through `spotifai api …` and self-restricts to the
-# verbs in ~/.spotifai/permissions.toml. Spotifai sets
-# ZAD_PERMISSIONS_PATH on every forwarded zad call so the policy applies
-# regardless of cwd.
+# Ask a natural-language question about your library — `ask` is
+# read-only and self-restricts to the verbs in
+# ~/.spotifai/permissions/ask.toml.
 spotifai ask "What are my most recently added albums?"
+
+# Build a new playlist conversationally — `playlist` loads
+# ~/.spotifai/permissions/playlist.toml so the agent can create one new
+# playlist, add tracks to it, and rename it. Destructive verbs stay denied.
+spotifai playlist "a 30-minute focus playlist with no vocals"
 ```
 
 ## Usage
@@ -63,16 +67,20 @@ spotifai ask "What are my most recently added albums?"
 spotifai <command> [options]
 
 Commands:
-  install         Guided setup: install pinned zad binary, bootstrap
-                  local signing key, scaffold and sign the permissions
-                  file at ~/.spotifai/permissions.toml
-  auth [args…]    Forward to `zad service create spotify` (global scope)
-                  to register a Spotify Client ID and run OAuth 2.0 PKCE
-  api <args…>     Forward to `zad spotify …` with ZAD_PERMISSIONS_PATH
-                  pinned to ~/.spotifai/permissions.toml
-  ask [query…]    Start an interactive zag session about your Spotify
-                  library, with the local permissions file injected
-  help            Print help for a command
+  install            Guided setup: install pinned zad binary, bootstrap
+                     local signing key, scaffold and sign every per-profile
+                     permissions file under ~/.spotifai/permissions/
+  auth [args…]       Forward to `zad service create spotify` (global scope)
+                     to register a Spotify Client ID and run OAuth 2.0 PKCE
+  api <args…>        Forward to `zad spotify …` with ZAD_PERMISSIONS_PATH
+                     pinned to the active profile's file. Requires
+                     `spotifai ask` or `spotifai playlist` to have selected
+                     a profile; direct shell invocations exit with an error.
+  ask [query…]       Read-only zag session over your Spotify library, with
+                     ~/.spotifai/permissions/ask.toml injected.
+  playlist [query…]  zag session that builds one new playlist for you, with
+                     ~/.spotifai/permissions/playlist.toml injected.
+  help               Print help for a command
 
 Options:
       --version           Print version
@@ -85,7 +93,7 @@ Run `spotifai help <command>` or see [`man/main.md`](man/main.md) for full flag 
 | File | Purpose |
 |---|---|
 | `~/.spotifai/bin/zad` | Pinned zad binary, written by `spotifai install`. |
-| `~/.spotifai/permissions.toml` | Read-only verb policy injected into the `spotifai ask` system prompt so the agent self-restricts. Defaults to read-only on first install; hand-edit `allowed` / `denied` to widen or narrow, then re-run `spotifai install` so the file is resigned and zad will load it again. |
+| `~/.spotifai/permissions/` | Per-profile policy files. `ask.toml` ships read-only and is injected into the `spotifai ask` system prompt; `playlist.toml` adds `playlists create`, `playlists add`, and `playlists rename` for `spotifai playlist`. Hand-edit `allowed` / `denied` in either file to widen or narrow, then re-run `spotifai install` so every profile file is resigned and zad will load it again. |
 | `~/.zad/signing/trusted.toml` | Per-machine signed trust store, populated by `zad signing init` during `spotifai install`. zad ≥ 0.4.0 fails closed at load time on any permissions file whose `[signature]` block is not in this trust store. |
 
 Spotify credentials and zad's own permissions live under `~/.zad/` and

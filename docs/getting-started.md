@@ -14,6 +14,15 @@ Confirm the binary is available:
 spotifai --version
 ```
 
+## Two agent surfaces
+
+spotifai exposes the agent through two commands, each with its own permissions profile:
+
+- **`spotifai ask`** is read-only. Use it for questions about your library.
+- **`spotifai playlist`** can additionally create a new playlist, add tracks to it, and rename it. Use it when you want the agent to build something for you.
+
+Both commands run `spotifai api …` under the hood; that shim looks up the matching profile file and pins it on zad. Direct `spotifai api …` invocations from a shell are intentionally rejected — call zad directly via `~/.spotifai/bin/zad spotify …` if you need that.
+
 ## Set up the local toolchain
 
 `spotifai install` walks a four-step guided setup:
@@ -26,10 +35,10 @@ It will, in order:
 
 1. Download the pinned zad binary into `~/.spotifai/bin/zad`.
 2. Run `zad signing init` to mint a local Ed25519 signing key in your OS keychain and create the per-machine trust store at `~/.zad/signing/trusted.toml`.
-3. Write a default read-only `~/.spotifai/permissions.toml` (allows `search`, `playlists list/show`, `library {tracks,albums} list`; denies every mutating verb).
-4. Sign that permissions file with `zad spotify permissions sign --local` so zad's load-time trust check accepts it on the first `spotifai api …` call.
+3. Scaffold the per-profile permissions files at `~/.spotifai/permissions/ask.toml` (read-only) and `~/.spotifai/permissions/playlist.toml` (read + create/add/rename). Existing files are left alone.
+4. Sign each profile file with `zad spotify permissions sign --local` so zad's load-time trust check accepts them on the first `spotifai api …` call.
 
-Re-run `spotifai install` whenever you edit `~/.spotifai/permissions.toml` — the signing step runs unconditionally and resigns the file in place.
+Re-run `spotifai install` whenever you edit a profile file — the signing step runs unconditionally and resigns every file in place.
 
 ## Create a Spotify developer app
 
@@ -68,19 +77,27 @@ spotifai auth \
 
 ## Your first query
 
+Read-only questions go through `spotifai ask`:
+
 ```sh
 # Ask anything about your library
 spotifai ask "What playlists do I have?"
 
-# Create a playlist
-spotifai ask "Create a playlist called Focus Music"
-
-# Add tracks
-spotifai ask "Add three lo-fi instrumental tracks to Focus Music"
-
 # Get JSON output for scripting
 spotifai ask "List my saved albums" --output json | jq '.[].name'
 ```
+
+Building a new playlist goes through `spotifai playlist`:
+
+```sh
+# Hand the agent a brief and let it pick tracks
+spotifai playlist "a 30-minute focus playlist with no vocals"
+
+# Or open the session empty and chat
+spotifai playlist
+```
+
+The agent in `spotifai playlist` can search the catalogue, look at your existing playlists for inspiration, create one new playlist, add tracks to it, and rename it before it commits. It cannot delete playlists or remove tracks — those verbs stay denied even in this profile.
 
 ## Next steps
 
