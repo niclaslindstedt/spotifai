@@ -36,11 +36,40 @@ make fmt-check     # verify formatting (CI)
 
 ## Architecture summary
 
-`spotifai` is a thin CLI shell around two workspace siblings: **zag** (the LLM agent runtime) and **zad** (the Spotify API client). `src/main.rs` parses arguments and dispatches to `src/lib.rs`, which wires the user's natural-language query through zag and routes any Spotify actions that emerge to zad. `src/output.rs` handles terminal formatting and JSON serialisation.
+`spotifai` is a thin CLI shell around two upstream tools: **zag** (the LLM agent runtime) and **zad** (the Spotify API client). `src/main.rs` parses arguments and dispatches to `src/lib.rs`, which wires the user's natural-language query through zag and routes any Spotify actions that emerge to zad. `src/output.rs` handles terminal formatting and JSON serialisation.
 
 Dependency direction: `main.rs` → `lib.rs` → `zag` + `zad`. Neither zag nor zad imports spotifai. The CLI layer never reaches into Spotify or LLM internals directly — all cross-cutting concerns (auth tokens, retry, rate-limiting) live in zad and zag respectively.
 
 Prompts live under `prompts/` and are versioned independently of the binary. When the agent's system prompt changes, bump the version directory (`<major>_<minor>_<patch>`) rather than editing in place.
+
+### Upstream dependencies: zag and zad
+
+The two upstream tools are integrated very differently — make sure you pick the
+right one before adding code:
+
+- **zag** ([niclaslindstedt/zag](https://github.com/niclaslindstedt/zag)) is
+  consumed as a **Rust library** via the [`zag`](https://crates.io/crates/zag)
+  crate on crates.io, pinned in `Cargo.toml`. The crate re-exports
+  `zag-agent` (core), `zag::orch::*` (orchestration), and `zag::serve::*`
+  (HTTP/WS server). Use the in-process API directly — do not shell out to the
+  `zag` CLI. Bump the version in `Cargo.toml` like any other Rust dep.
+
+- **zad** ([niclaslindstedt/zad](https://github.com/niclaslindstedt/zad)) is
+  consumed as a **separately-installed binary**, not as a Rust crate. spotifai
+  forward-routes Spotify subcommands to `zad` (e.g. `spotifai api playlists
+  list` → `zad spotify playlists list`). Forward routing lets zad enforce its
+  own permission policy, OAuth flow, and keychain access on its own terms; we
+  do not re-implement them in spotifai. The pinned zad version lives in
+  `.zadrc` at the repo root and is checked into git so the install script and
+  CI agree on which release to fetch. spotifai installs the pinned binary into
+  `~/.spotifai/bin/zad` and invokes that path explicitly, so the version on
+  `$PATH` never matters and a globally-installed `zad` cannot accidentally be
+  used with mismatched permissions or schema.
+
+When bumping `.zadrc`, verify the targeted release exists at
+`https://github.com/niclaslindstedt/zad/releases/tag/<version>` and run any
+forward-routed subcommands locally — zad's CLI surface is not yet stable across
+minor versions.
 
 ## Where new code goes
 

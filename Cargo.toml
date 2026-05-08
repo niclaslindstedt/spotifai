@@ -17,3 +17,4 @@ name = "spotifai"
 path = "src/lib.rs"
 
 [dependencies]
+zag = "0.17"
