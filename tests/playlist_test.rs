@@ -1,8 +1,9 @@
 //! Pure-function tests for `spotifai::playlist` — prompt parsing and
 //! permissions injection. No tokio runtime, no zag spawn.
 
-use spotifai::permissions::playlist_default;
+use spotifai::permissions::Profile;
 use spotifai::playlist::{PLAYLIST_PROMPT_RAW, extract_system_section, render_system_prompt};
+use spotifai::providers::Provider;
 
 #[test]
 fn extract_system_section_strips_yaml_front_matter() {
@@ -34,7 +35,7 @@ fn extract_system_section_drops_user_section() {
 fn extract_system_section_keeps_subheadings() {
     let body = extract_system_section(PLAYLIST_PROMPT_RAW);
     for needle in [
-        "### How to talk to Spotify",
+        "### How to talk to {{ provider_name }}",
         "### Permissions — read this every turn",
         "### Style",
     ] {
@@ -46,14 +47,20 @@ fn extract_system_section_keeps_subheadings() {
 }
 
 #[test]
-fn render_system_prompt_substitutes_permissions_block() {
-    let policy = playlist_default();
-    let rendered = render_system_prompt(PLAYLIST_PROMPT_RAW, &policy);
+fn render_system_prompt_substitutes_permissions_and_provider_blocks() {
+    let policy = Profile::Playlist.default_policy(Provider::Spotify);
+    let rendered = render_system_prompt(PLAYLIST_PROMPT_RAW, Provider::Spotify, &policy);
 
-    assert!(
-        !rendered.contains("{{ permissions_block }}"),
-        "permissions placeholder not substituted: {rendered}"
-    );
+    for placeholder in [
+        "{{ permissions_block }}",
+        "{{ provider_name }}",
+        "{{ provider_examples }}",
+    ] {
+        assert!(
+            !rendered.contains(placeholder),
+            "placeholder `{placeholder}` not substituted: {rendered}"
+        );
+    }
 
     let block = policy.as_prompt_block();
     for line in block.lines().filter(|l| !l.is_empty()) {
@@ -65,9 +72,9 @@ fn render_system_prompt_substitutes_permissions_block() {
 }
 
 #[test]
-fn rendered_prompt_lists_playlist_create_and_add_verbs() {
-    let policy = playlist_default();
-    let rendered = render_system_prompt(PLAYLIST_PROMPT_RAW, &policy);
+fn rendered_spotify_prompt_lists_playlist_create_and_add_verbs() {
+    let policy = Profile::Playlist.default_policy(Provider::Spotify);
+    let rendered = render_system_prompt(PLAYLIST_PROMPT_RAW, Provider::Spotify, &policy);
     for needle in [
         "`spotifai api playlists create`",
         "`spotifai api playlists add",
@@ -75,19 +82,41 @@ fn rendered_prompt_lists_playlist_create_and_add_verbs() {
     ] {
         assert!(
             rendered.contains(needle),
-            "rendered playlist prompt missing example `{needle}`:\n{rendered}"
+            "rendered Spotify playlist prompt missing example `{needle}`:\n{rendered}"
         );
     }
 }
 
 #[test]
-fn rendered_prompt_does_not_leak_profile_env_var_name() {
-    // Same constraint as `ask`: never tell the agent how profile
-    // selection is wired, so it has nothing to bind to if it tries
-    // to escalate.
-    let policy = playlist_default();
-    let rendered = render_system_prompt(PLAYLIST_PROMPT_RAW, &policy);
-    for needle in ["SPOTIFAI_PROFILE", "ZAD_PERMISSIONS_PATH"] {
+fn rendered_ymusic_prompt_uses_ymusic_examples() {
+    let policy = Profile::Playlist.default_policy(Provider::YouTubeMusic);
+    let rendered = render_system_prompt(PLAYLIST_PROMPT_RAW, Provider::YouTubeMusic, &policy);
+    assert!(
+        rendered.contains("How to talk to YouTube Music"),
+        "ymusic playlist prompt missing display-name substitution:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("library list"),
+        "ymusic playlist prompt missing the rated-videos verb:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("library tracks list"),
+        "ymusic playlist prompt should not mention Spotify-only verbs:\n{rendered}"
+    );
+}
+
+#[test]
+fn rendered_prompt_does_not_leak_internal_env_var_names() {
+    // Same constraint as `ask`: never tell the agent how
+    // profile/provider selection is wired, so it has nothing to bind
+    // to if it tries to escalate.
+    let policy = Profile::Playlist.default_policy(Provider::Spotify);
+    let rendered = render_system_prompt(PLAYLIST_PROMPT_RAW, Provider::Spotify, &policy);
+    for needle in [
+        "SPOTIFAI_PROFILE",
+        "SPOTIFAI_PROVIDER",
+        "ZAD_PERMISSIONS_PATH",
+    ] {
         assert!(
             !rendered.contains(needle),
             "rendered playlist prompt leaks env var name `{needle}`:\n{rendered}"

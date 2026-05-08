@@ -3,13 +3,17 @@
 use serde_json::{Value, json};
 
 use spotifai::export::{
-    PAGE_SIZE, SCHEMA_VERSION, build_envelope, build_zad_args, extract_items, format_iso8601,
-    iso8601_now,
+    PAGE_SIZE, SCHEMA_VERSION, build_envelope, build_spotify_envelope, build_ymusic_envelope,
+    build_zad_args, extract_items, format_iso8601, iso8601_now,
 };
+use spotifai::providers::Provider;
 
 #[test]
-fn build_zad_args_prefixes_spotify_and_appends_json() {
-    let args = build_zad_args(&["library", "tracks", "list", "--limit", "50"]);
+fn build_zad_args_prefixes_provider_subcommand_and_appends_json() {
+    let args = build_zad_args(
+        Provider::Spotify,
+        &["library", "tracks", "list", "--limit", "50"],
+    );
     assert_eq!(
         args,
         vec![
@@ -22,11 +26,22 @@ fn build_zad_args_prefixes_spotify_and_appends_json() {
             "--json".to_string(),
         ]
     );
+
+    let ymusic = build_zad_args(Provider::YouTubeMusic, &["library", "list"]);
+    assert_eq!(
+        ymusic,
+        vec![
+            "ymusic".to_string(),
+            "library".to_string(),
+            "list".to_string(),
+            "--json".to_string(),
+        ]
+    );
 }
 
 #[test]
 fn build_zad_args_handles_empty_verb() {
-    let args = build_zad_args(&[]);
+    let args = build_zad_args(Provider::Spotify, &[]);
     assert_eq!(args, vec!["spotify".to_string(), "--json".to_string()]);
 }
 
@@ -41,7 +56,15 @@ fn extract_items_returns_bare_arrays_unchanged() {
 
 #[test]
 fn extract_items_unwraps_known_pagination_keys() {
-    for key in ["items", "tracks", "playlists", "albums", "data", "results"] {
+    for key in [
+        "items",
+        "tracks",
+        "playlists",
+        "albums",
+        "videos",
+        "data",
+        "results",
+    ] {
         let v = json!({ key: [{"id": "x"}], "total": 1 });
         let items = extract_items(&v);
         assert_eq!(
@@ -91,6 +114,33 @@ fn build_envelope_has_required_top_level_keys() {
     assert_eq!(playlists.len(), 1);
     assert_eq!(playlists[0]["id"], "p1");
     assert_eq!(playlists[0]["tracks"][0]["id"], "t1");
+}
+
+#[test]
+fn build_spotify_envelope_routes_provider_into_source_service() {
+    let envelope = build_spotify_envelope(Provider::Spotify, vec![], vec![], vec![]);
+    assert_eq!(envelope["source"]["service"], "spotify");
+    assert!(envelope["liked_tracks"].is_array());
+    assert!(envelope["saved_albums"].is_array());
+    assert!(envelope["playlists"].is_array());
+}
+
+#[test]
+fn build_ymusic_envelope_uses_liked_videos_and_no_album_bucket() {
+    let envelope = build_ymusic_envelope(
+        Provider::YouTubeMusic,
+        vec![json!({"video_id": "abc"})],
+        vec![json!({"id": "p1", "videos": []})],
+    );
+    assert_eq!(envelope["source"]["service"], "ymusic");
+    let liked = envelope["liked_videos"].as_array().expect("liked_videos");
+    assert_eq!(liked.len(), 1);
+    assert_eq!(liked[0]["video_id"], "abc");
+    // YouTube Music has no "saved albums" concept — the album bucket
+    // is intentionally absent (importers should branch on
+    // `source.service`).
+    assert!(envelope.get("saved_albums").is_none());
+    assert!(envelope.get("liked_tracks").is_none());
 }
 
 #[test]

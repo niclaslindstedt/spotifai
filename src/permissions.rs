@@ -1,18 +1,27 @@
-//! spotifai permission profiles (`~/.spotifai/permissions/<profile>.toml`).
+//! spotifai permission profiles
+//! (`~/.spotifai/permissions/<provider>/<profile>.toml`).
 //!
-//! Each agent surface has its own TOML policy file. `spotifai ask` injects
-//! the `ask` profile into its system prompt; `spotifai playlist` injects the
-//! `playlist` profile. The same files are pointed at by `ZAD_PERMISSIONS_PATH`
-//! when the agent shells out through `spotifai api`, so zad's load-time
-//! verification gate sees the profile that matches the active surface.
+//! Each agent surface has its own TOML policy file, scoped per
+//! backing music provider. `spotifai ask` injects the `ask` profile
+//! into its system prompt; `spotifai playlist` injects the `playlist`
+//! profile. The same files are pointed at by `ZAD_PERMISSIONS_PATH`
+//! when the agent shells out through `spotifai api`, so zad's
+//! load-time verification gate sees the profile that matches the
+//! active surface.
 //!
-//! Both files ship with safe defaults — `ask` is read-only, `playlist` adds
-//! the `playlists create|add|rename` verbs needed to build a new playlist
-//! end-to-end. Users can hand-edit either file, then re-run `spotifai install`
-//! so the signing step picks up the change. The two layers (prompt-side
-//! verb list and zad's signed runtime gate) serve different roles: the
-//! prompt keeps the agent from proposing forbidden verbs in the first
-//! place; zad's verification fails closed if the agent tries anyway.
+//! Both files ship with safe defaults — `ask` is read-only,
+//! `playlist` adds the verbs needed to build a new playlist
+//! end-to-end. Users can hand-edit either file, then re-run
+//! `spotifai install` so the signing step picks up the change. The
+//! two layers (prompt-side verb list and zad's signed runtime gate)
+//! serve different roles: the prompt keeps the agent from proposing
+//! forbidden verbs in the first place; zad's verification fails
+//! closed if the agent tries anyway.
+//!
+//! The provider axis (Spotify, YouTube Music, …) lives in
+//! [`crate::providers`]; this module owns the [`Profile`] axis and
+//! the on-disk file format, and delegates the per-provider verb
+//! defaults to that module.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,20 +29,23 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-/// Subdirectory under `~/.spotifai/` that holds every per-profile policy file.
+use crate::providers::Provider;
+
+/// Subdirectory under `~/.spotifai/` that holds the per-provider
+/// permission directories.
 pub const PERMISSIONS_DIR: &str = "permissions";
 
-/// Mode tag stored in the read-only profile.
+/// Mode tag stored in a read-only profile.
 pub const MODE_READ_ONLY: &str = "read_only";
 
-/// Mode tag stored in the playlist profile.
+/// Mode tag stored in a playlist-curator profile.
 pub const MODE_PLAYLIST_CURATOR: &str = "playlist_curator";
 
 /// Identifier for one of spotifai's per-command permission profiles.
 ///
-/// Each variant maps 1:1 to a TOML file under `~/.spotifai/permissions/` and
-/// to the command that loads it (`ask` → `Profile::Ask`, `playlist` →
-/// `Profile::Playlist`).
+/// Each variant maps 1:1 to a TOML file under
+/// `~/.spotifai/permissions/<provider>/` and to the command that
+/// loads it (`ask` → `Profile::Ask`, `playlist` → `Profile::Playlist`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
     Ask,
@@ -41,8 +53,8 @@ pub enum Profile {
 }
 
 impl Profile {
-    /// Every profile spotifai knows about. The install flow iterates this
-    /// to scaffold and sign one file per entry.
+    /// Every profile spotifai knows about. The install flow iterates
+    /// this (per provider) to scaffold and sign one file per entry.
     pub const ALL: &'static [Profile] = &[Profile::Ask, Profile::Playlist];
 
     /// Stable string used as both the file stem and the value of the
@@ -54,11 +66,12 @@ impl Profile {
         }
     }
 
-    /// Inverse of [`Profile::as_str`]. Returns `None` for unknown values
-    /// so callers can render a "no profile selected" error rather than
-    /// silently falling back. Named `parse` rather than `from_str` to
-    /// avoid being confused with the `std::str::FromStr` trait method
-    /// (which would force a different error type).
+    /// Inverse of [`Profile::as_str`]. Returns `None` for unknown
+    /// values so callers can render a "no profile selected" error
+    /// rather than silently falling back. Named `parse` rather than
+    /// `from_str` to avoid being confused with the
+    /// `std::str::FromStr` trait method (which would force a
+    /// different error type).
     pub fn parse(s: &str) -> Option<Profile> {
         match s {
             "ask" => Some(Profile::Ask),
@@ -67,28 +80,26 @@ impl Profile {
         }
     }
 
-    /// In-memory default policy for this profile, used when the on-disk
-    /// file is missing and as the seed when scaffolding a fresh file.
-    pub fn default_policy(self) -> Permissions {
-        match self {
-            Profile::Ask => ask_default(),
-            Profile::Playlist => playlist_default(),
-        }
+    /// In-memory default policy for the (`provider`, `self`) pair.
+    /// Used when the on-disk file is missing and as the seed when
+    /// scaffolding a fresh file.
+    pub fn default_policy(self, provider: Provider) -> Permissions {
+        provider.default_policy(self)
     }
 }
 
-/// Parsed contents of a `~/.spotifai/permissions/<profile>.toml`.
+/// Parsed contents of a `~/.spotifai/permissions/<provider>/<profile>.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Permissions {
     /// Short tag (`read_only`, `playlist_curator`, …). Informational —
     /// the effective policy is the `allowed` / `denied` lists below.
     pub mode: String,
-    /// Free-text description embedded in the system prompt so the agent
-    /// can quote the policy back to the user verbatim.
+    /// Free-text description embedded in the system prompt so the
+    /// agent can quote the policy back to the user verbatim.
     pub description: String,
-    /// `spotifai api` verbs the agent is allowed to invoke. Each entry
-    /// is the literal subcommand string after `spotifai api ` (e.g.
-    /// `playlists list`, `search`).
+    /// `spotifai api` verbs the agent is allowed to invoke. Each
+    /// entry is the literal subcommand string after `spotifai api `
+    /// (e.g. `playlists list`, `search`).
     #[serde(default)]
     pub allowed: Vec<String>,
     /// `spotifai api` verbs the agent must refuse to invoke.
@@ -123,77 +134,21 @@ impl Permissions {
     }
 }
 
-/// Read-only starter policy used by the `ask` profile.
-pub fn ask_default() -> Permissions {
-    Permissions {
-        mode: MODE_READ_ONLY.to_string(),
-        description:
-            "Read-only access to the Spotify library. The agent may search the catalogue and \
-             read playlists, saved tracks, and saved albums, but must not create, modify, or \
-             delete anything."
-                .to_string(),
-        allowed: vec![
-            "search".into(),
-            "playlists list".into(),
-            "playlists show".into(),
-            "library tracks list".into(),
-            "library albums list".into(),
-        ],
-        denied: vec![
-            "playlists create".into(),
-            "playlists rename".into(),
-            "playlists delete".into(),
-            "playlists add".into(),
-            "playlists remove".into(),
-            "library tracks save".into(),
-            "library tracks unsave".into(),
-            "library albums save".into(),
-            "library albums unsave".into(),
-        ],
-    }
-}
-
-/// Read + create/add/rename starter policy used by the `playlist` profile.
-pub fn playlist_default() -> Permissions {
-    Permissions {
-        mode: MODE_PLAYLIST_CURATOR.to_string(),
-        description:
-            "Curate new playlists for the user. The agent may search the catalogue, read the \
-             user's existing playlists and library, create a new playlist, add tracks to it, \
-             and rename it. The agent must not delete playlists, remove tracks from playlists, \
-             or modify the user's saved library."
-                .to_string(),
-        allowed: vec![
-            "search".into(),
-            "playlists list".into(),
-            "playlists show".into(),
-            "playlists create".into(),
-            "playlists add".into(),
-            "playlists rename".into(),
-            "library tracks list".into(),
-            "library albums list".into(),
-        ],
-        denied: vec![
-            "playlists delete".into(),
-            "playlists remove".into(),
-            "library tracks save".into(),
-            "library tracks unsave".into(),
-            "library albums save".into(),
-            "library albums unsave".into(),
-        ],
-    }
-}
-
-/// Resolve the per-profile policy path:
-/// `<dirs::home_dir()>/.spotifai/permissions/<profile>.toml`.
-pub fn path_for(profile: Profile) -> Result<PathBuf> {
+/// Resolve the per-(provider, profile) policy path:
+/// `<dirs::home_dir()>/.spotifai/permissions/<provider>/<profile>.toml`.
+pub fn path_for(provider: Provider, profile: Profile) -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("could not resolve home directory"))?;
     let filename = format!("{}.toml", profile.as_str());
-    Ok(home.join(".spotifai").join(PERMISSIONS_DIR).join(filename))
+    Ok(home
+        .join(".spotifai")
+        .join(PERMISSIONS_DIR)
+        .join(provider.as_str())
+        .join(filename))
 }
 
-/// Serialize a [`Permissions`] to a TOML string with a leading comment
-/// header so a curious user opening the file knows what it is.
+/// Serialize a [`Permissions`] to a TOML string with a leading
+/// comment header so a curious user opening the file knows what it
+/// is.
 pub fn to_toml_string(p: &Permissions) -> Result<String> {
     let body = toml::to_string_pretty(p).context("serializing permissions to TOML")?;
     Ok(format!("{}{body}", file_header()))
@@ -205,9 +160,10 @@ fn file_header() -> &'static str {
      # This file is read by spotifai and injected into the active agent's\n\
      # system prompt so it self-restricts to the listed verbs. It does NOT\n\
      # replace zad's own runtime enforcement at\n\
-     # `~/.zad/services/spotify/permissions.toml`. Edit `allowed` / `denied`\n\
-     # to widen or narrow the surface, then re-run `spotifai install` so\n\
-     # zad's load-time trust check accepts the new file.\n\n"
+     # `~/.zad/services/<provider>/permissions.toml`. Edit `allowed` /\n\
+     # `denied` to widen or narrow the surface, then re-run\n\
+     # `spotifai install` so zad's load-time trust check accepts the new\n\
+     # file.\n\n"
 }
 
 /// Parse a permissions file from a TOML string.
@@ -215,9 +171,9 @@ pub fn from_toml_string(s: &str) -> Result<Permissions> {
     toml::from_str(s).context("parsing permissions TOML")
 }
 
-/// Read the permissions file at `path`. Returns `fallback` if the file does
-/// not exist, so callers can blindly inject without first checking for
-/// presence.
+/// Read the permissions file at `path`. Returns `fallback` if the
+/// file does not exist, so callers can blindly inject without first
+/// checking for presence.
 pub fn read_or(path: &Path, fallback: Permissions) -> Result<Permissions> {
     match fs::read_to_string(path) {
         Ok(s) => from_toml_string(&s),
@@ -243,11 +199,12 @@ pub fn ensure_default_at(path: &Path, default: &Permissions) -> Result<bool> {
     Ok(true)
 }
 
-/// Write the default policy file for `profile` if it does not already
-/// exist. Returns the resolved path together with a flag: `true` if a
-/// file was written, `false` if one was already present.
-pub fn ensure_default_for(profile: Profile) -> Result<(PathBuf, bool)> {
-    let path = path_for(profile)?;
-    let wrote = ensure_default_at(&path, &profile.default_policy())?;
+/// Write the default policy file for `(provider, profile)` if it
+/// does not already exist. Returns the resolved path together with a
+/// flag: `true` if a file was written, `false` if one was already
+/// present.
+pub fn ensure_default_for(provider: Provider, profile: Profile) -> Result<(PathBuf, bool)> {
+    let path = path_for(provider, profile)?;
+    let wrote = ensure_default_at(&path, &profile.default_policy(provider))?;
     Ok((path, wrote))
 }

@@ -3,15 +3,23 @@
 use std::path::PathBuf;
 
 use spotifai::api::{
-    SPOTIFAI_PROFILE_ENV, ZAD_PERMISSIONS_PATH_ENV, build_command, command_env, forward_args,
-    resolve_permissions_path,
+    SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, ZAD_PERMISSIONS_PATH_ENV, build_command,
+    command_env, forward_args, resolve_permissions_path,
 };
 use spotifai::permissions::Profile;
+use spotifai::providers::Provider;
 
 #[test]
-fn forward_args_prefixes_spotify_subcommand() {
+fn forward_args_prefixes_provider_subcommand() {
     let user: Vec<String> = vec![];
-    assert_eq!(forward_args(&user), vec!["spotify".to_string()]);
+    assert_eq!(
+        forward_args(Provider::Spotify, &user),
+        vec!["spotify".to_string()]
+    );
+    assert_eq!(
+        forward_args(Provider::YouTubeMusic, &user),
+        vec!["ymusic".to_string()]
+    );
 }
 
 #[test]
@@ -22,9 +30,18 @@ fn forward_args_passes_user_args_through_verbatim() {
         "--json".to_string(),
     ];
     assert_eq!(
-        forward_args(&user),
+        forward_args(Provider::Spotify, &user),
         vec![
             "spotify".to_string(),
+            "playlists".to_string(),
+            "list".to_string(),
+            "--json".to_string(),
+        ]
+    );
+    assert_eq!(
+        forward_args(Provider::YouTubeMusic, &user),
+        vec![
+            "ymusic".to_string(),
             "playlists".to_string(),
             "list".to_string(),
             "--json".to_string(),
@@ -42,7 +59,7 @@ fn forward_args_preserves_hyphen_values() {
         "--limit=10".to_string(),
     ];
     assert_eq!(
-        forward_args(&user),
+        forward_args(Provider::Spotify, &user),
         vec![
             "spotify".to_string(),
             "tracks".to_string(),
@@ -55,13 +72,36 @@ fn forward_args_preserves_hyphen_values() {
 #[test]
 fn build_command_targets_the_managed_zad_binary() {
     let zad = PathBuf::from("/home/user/.spotifai/bin/zad");
-    let cmd = build_command(&zad, &["playlists".to_string(), "list".to_string()]);
+    let cmd = build_command(
+        &zad,
+        Provider::Spotify,
+        &["playlists".to_string(), "list".to_string()],
+    );
     assert_eq!(cmd.get_program(), zad.as_os_str());
     let argv: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
     assert_eq!(
         argv,
         vec![
             std::ffi::OsStr::new("spotify"),
+            std::ffi::OsStr::new("playlists"),
+            std::ffi::OsStr::new("list"),
+        ]
+    );
+}
+
+#[test]
+fn build_command_uses_ymusic_subcommand_for_youtube_music() {
+    let zad = PathBuf::from("/home/user/.spotifai/bin/zad");
+    let cmd = build_command(
+        &zad,
+        Provider::YouTubeMusic,
+        &["playlists".to_string(), "list".to_string()],
+    );
+    let argv: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
+    assert_eq!(
+        argv,
+        vec![
+            std::ffi::OsStr::new("ymusic"),
             std::ffi::OsStr::new("playlists"),
             std::ffi::OsStr::new("list"),
         ]
@@ -84,31 +124,44 @@ fn profile_env_constant_is_spotifai_namespaced() {
 }
 
 #[test]
+fn provider_env_constant_is_spotifai_namespaced() {
+    assert_eq!(SPOTIFAI_PROVIDER_ENV, "SPOTIFAI_PROVIDER");
+}
+
+#[test]
 fn resolve_permissions_path_errors_when_file_missing() {
-    // Neither profile file should exist under HOME during a fresh
-    // test run; assert that resolve_permissions_path fails closed.
-    // (If a developer happens to have spotifai installed on their
-    // machine, both files will exist and the call will succeed —
-    // which is also a valid outcome to assert against.)
-    for &profile in Profile::ALL {
-        match resolve_permissions_path(profile) {
-            Ok(path) => {
-                let s = path.to_string_lossy();
-                assert!(
-                    s.contains(&format!(".spotifai/permissions/{}.toml", profile.as_str()))
-                        || s.contains(&format!(
-                            ".spotifai\\permissions\\{}.toml",
-                            profile.as_str()
-                        )),
-                    "resolved path should sit under .spotifai/permissions/, got {s}"
-                );
-            }
-            Err(e) => {
-                let msg = format!("{e:#}");
-                assert!(
-                    msg.contains("spotifai install"),
-                    "missing-file error should point at `spotifai install`, got: {msg}"
-                );
+    // No profile file should exist under HOME during a fresh test
+    // run; assert that resolve_permissions_path fails closed. (If a
+    // developer happens to have spotifai installed on their machine,
+    // the file will exist and the call will succeed — which is also a
+    // valid outcome to assert against.)
+    for &provider in Provider::ALL {
+        for &profile in Profile::ALL {
+            match resolve_permissions_path(provider, profile) {
+                Ok(path) => {
+                    let s = path.to_string_lossy();
+                    let posix = format!(
+                        ".spotifai/permissions/{}/{}.toml",
+                        provider.as_str(),
+                        profile.as_str()
+                    );
+                    let win = format!(
+                        ".spotifai\\permissions\\{}\\{}.toml",
+                        provider.as_str(),
+                        profile.as_str()
+                    );
+                    assert!(
+                        s.contains(&posix) || s.contains(&win),
+                        "resolved path should sit under .spotifai/permissions/<provider>/, got {s}"
+                    );
+                }
+                Err(e) => {
+                    let msg = format!("{e:#}");
+                    assert!(
+                        msg.contains("spotifai install"),
+                        "missing-file error should point at `spotifai install`, got: {msg}"
+                    );
+                }
             }
         }
     }
@@ -117,7 +170,7 @@ fn resolve_permissions_path_errors_when_file_missing() {
 #[test]
 fn command_env_helper_reads_back_explicitly_set_env() {
     let zad = PathBuf::from("/tmp/zad");
-    let mut cmd = build_command(&zad, &[]);
+    let mut cmd = build_command(&zad, Provider::Spotify, &[]);
     cmd.env(ZAD_PERMISSIONS_PATH_ENV, "/tmp/permissions.toml");
     let v = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV).expect("env was set above");
     assert_eq!(v, std::ffi::OsStr::new("/tmp/permissions.toml"));

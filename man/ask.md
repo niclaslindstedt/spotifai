@@ -1,21 +1,22 @@
 # spotifai ask
 
-> Start an interactive zag session pre-loaded to query the user's Spotify library through `spotifai api …`, with the local permissions file injected so the agent self-restricts.
+> Start an interactive zag session pre-loaded to query the user's library on the active provider through `spotifai api …`, with the local permissions file injected so the agent self-restricts.
 
 ## Synopsis
 
 ```
-spotifai ask [QUERY]...
+spotifai ask [--provider <slug>] [QUERY]...
 ```
 
 ## Description
 
 `spotifai ask` opens an interactive [zag](https://github.com/niclaslindstedt/zag) session. The session's system prompt:
 
-1. Tells the agent that every Spotify interaction must go through the `spotifai api …` shell command (not the Spotify Web API directly), because that is where zad's scope and permissions are enforced.
-2. Inlines the contents of `~/.spotifai/permissions/ask.toml` so the agent knows which `spotifai api` verbs it is allowed to invoke.
+1. Tells the agent that every interaction must go through the `spotifai api …` shell command (not the provider's API directly), because that is where zad's scope and permissions are enforced.
+2. Inlines the contents of `~/.spotifai/permissions/<provider>/ask.toml` so the agent knows which `spotifai api` verbs it is allowed to invoke.
+3. Substitutes provider-specific example calls (Spotify uses `library tracks/albums list`; YouTube Music uses `library list` over rated videos), so the agent does not propose verbs that do not exist on the active provider.
 
-Before starting zag, `spotifai ask` runs the same install/version check as `spotifai install` to make sure the pinned `~/.spotifai/bin/zad` binary is on disk, and writes a default read-only `ask` permissions file if none exists yet.
+Before starting zag, `spotifai ask` runs the same install/version check as `spotifai install` to make sure the pinned `~/.spotifai/bin/zad` binary is on disk, and writes a default read-only `ask` permissions file for the active provider if none exists yet.
 
 The optional positional argument becomes the agent's first turn. With no argument, the session opens empty and waits for the user to type. Quit with `Ctrl+D` or whatever exit gesture the active zag provider uses.
 
@@ -23,24 +24,27 @@ The optional positional argument becomes the agent's first turn. With no argumen
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
+| `--provider <slug>` | enum | `spotify` | Backing provider to query. One of `spotify`, `ymusic`. |
 | `[QUERY]...` | trailing | — | Optional opening question. Joined with spaces and used as the agent's first turn. |
 
 ## Flags
 
-`spotifai ask` itself takes no flags. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
+`spotifai ask` owns `--provider`. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
 
 ## Environment variables
 
-`spotifai ask` reads no environment variables of its own. zag and its underlying provider (Claude / Codex / Gemini / Copilot / Ollama) inherit the parent environment, so any variables they consult (`ANTHROPIC_API_KEY`, etc.) are honoured.
+`spotifai ask` reads no environment variables of its own. zag and its underlying provider (Claude / Codex / Gemini / Copilot / Ollama) inherit the parent environment, so any variables they consult (`ANTHROPIC_API_KEY`, etc.) are honoured. `spotifai ask` *sets* `SPOTIFAI_PROVIDER` and `SPOTIFAI_PROFILE` on its own process so child `spotifai api` shells route to the same `(provider, profile)` policy file the prompt was rendered with.
 
 ## Permissions
 
-The injected policy lives at `~/.spotifai/permissions/ask.toml`. On first install it's read-only:
+The injected policy lives at `~/.spotifai/permissions/<provider>/ask.toml`. On first install it's read-only:
 
-- **Allowed**: `search`, `playlists list`, `playlists show`, `library tracks list`, `library albums list`.
-- **Denied**: every mutating verb (`playlists create|rename|delete|add|remove`, `library tracks save|unsave`, `library albums save|unsave`).
+- **Spotify allowed**: `search`, `playlists list`, `playlists show`, `library tracks list`, `library albums list`.
+- **Spotify denied**: every mutating verb (`playlists create|rename|delete|add|remove`, `library tracks save|unsave`, `library albums save|unsave`).
+- **YouTube Music allowed**: `search`, `playlists list`, `playlists show`, `library list`.
+- **YouTube Music denied**: every mutating verb (`playlists create|rename|delete|add|remove`, `library like|unlike`).
 
-The `ask` profile is independent of the `playlist` profile (`~/.spotifai/permissions/playlist.toml`) — edits to one do not affect the other. To widen `ask` past read-only, hand-edit `allowed` / `denied` and re-run `spotifai install` to resign the file; spotifai re-reads it on every `spotifai ask` invocation. The agent is forbidden in the system prompt from editing the file or invoking `zad spotify permissions` itself, so widening always requires a deliberate human edit. The permissions file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's own runtime gate continues to be the file at `~/.zad/services/spotify/permissions.toml`.
+The `ask` profile is independent of the `playlist` profile — edits to one do not affect the other. To widen `ask` past read-only, hand-edit `allowed` / `denied` and re-run `spotifai install` to resign the file; spotifai re-reads it on every `spotifai ask` invocation. The agent is forbidden in the system prompt from editing the file or invoking `zad <provider> permissions` itself, so widening always requires a deliberate human edit. The permissions file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's own runtime gate continues to be the file at `~/.zad/services/<provider>/permissions.toml`.
 
 ## Exit codes
 
@@ -53,16 +57,16 @@ The `ask` profile is independent of the `playlist` profile (`~/.spotifai/permiss
 
 ## Examples
 
-Open the session with no opener and start typing:
+Open the Spotify session with no opener and start typing:
 
 ```sh
 spotifai ask
 ```
 
-Ask about the library in one go:
+Ask a question against the YouTube Music library in one go:
 
 ```sh
-spotifai ask What kinds of music do I listen to most?
+spotifai ask --provider ymusic "what playlists do I have?"
 ```
 
 Quote when the question contains shell-special characters:
@@ -74,6 +78,6 @@ spotifai ask "show me my 'on repeat' playlist"
 ## See also
 
 - [`main.md`](main.md) — top-level `spotifai` reference
-- [`api.md`](api.md) — the forward-routing shim the agent uses to talk to Spotify
+- [`api.md`](api.md) — the forward-routing shim the agent uses
 - [`playlist.md`](playlist.md) — write-side counterpart for building new playlists
 - [`spotifai install`](main.md#spotifai-install) — installs zad and scaffolds the permissions files

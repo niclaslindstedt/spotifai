@@ -9,6 +9,7 @@ pub mod install;
 pub mod output;
 pub mod permissions;
 pub mod playlist;
+pub mod providers;
 pub mod session;
 
 pub fn version() -> &'static str {
