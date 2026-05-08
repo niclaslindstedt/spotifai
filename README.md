@@ -41,13 +41,16 @@ make build
 # read-only permissions file at ~/.spotifai/permissions.toml.
 spotifai install
 
-# Authenticate with Spotify via zad (opens browser for OAuth).
-~/.spotifai/bin/zad service create spotify
-~/.spotifai/bin/zad service enable spotify
+# Authenticate with Spotify (opens browser for the OAuth 2.0 PKCE flow).
+# Forwards to `zad service create spotify` at zad's global scope, so the
+# credential applies to every directory you later run `spotifai api …` from.
+spotifai auth
 
 # Ask a natural-language question about your library — the agent talks
 # to Spotify only through `spotifai api …` and self-restricts to the
-# verbs in ~/.spotifai/permissions.toml.
+# verbs in ~/.spotifai/permissions.toml. Spotifai sets
+# ZAD_PERMISSIONS_PATH on every forwarded zad call so the policy applies
+# regardless of cwd.
 spotifai ask "What are my most recently added albums?"
 ```
 
@@ -59,7 +62,10 @@ spotifai <command> [options]
 Commands:
   install         Install pinned zad binary into ~/.spotifai/bin and
                   scaffold the read-only permissions file
-  api <args…>     Forward to `zad spotify …`
+  auth [args…]    Forward to `zad service create spotify` (global scope)
+                  to register a Spotify Client ID and run OAuth 2.0 PKCE
+  api <args…>     Forward to `zad spotify …` with ZAD_PERMISSIONS_PATH
+                  pinned to ~/.spotifai/permissions.toml
   ask [query…]    Start an interactive zag session about your Spotify
                   library, with the local permissions file injected
   help            Print help for a command
@@ -92,8 +98,8 @@ See [`examples/`](examples/) for runnable shell script demos.
 
 _Common failure modes and fixes._
 
-- **`auth` hangs or fails** — confirm `redirect_uri` in your Spotify app dashboard matches the configured value exactly.
-- **`SPOTIFY_CLIENT_ID` not set** — export it or add it to `~/.config/spotifai/config.toml`.
+- **`spotifai auth` hangs or fails** — confirm your Spotify app dashboard has `http://127.0.0.1` registered as an allowed redirect host. zad's loopback listener picks a random port; Spotify accepts any port on `127.0.0.1` once the host is registered.
+- **"no credentials" from `spotifai api`** — run `spotifai auth` to register a Spotify Client ID and refresh token at zad's global scope.
 - **Agent gives wrong results** — use `-v` to inspect reasoning steps and refine your query.
 
 ## Documentation

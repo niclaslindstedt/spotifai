@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod ask;
+pub mod auth;
 pub mod cli;
 pub mod install;
 pub mod output;

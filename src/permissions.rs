@@ -4,19 +4,14 @@
 //! agent's system prompt so it self-restricts to the listed `spotifai
 //! api` verbs. It is not a substitute for zad's own signed
 //! permissions file at `~/.zad/services/spotify/permissions.toml` —
-//! that is the authoritative runtime gate. spotifai's file just tells
-//! the LLM what surface area to use.
-//!
-//! TODO: real enforcement. The cleanest path is an upstream change to
-//! zad: a `ZAD_PERMISSIONS_PATH` env var that overrides zad's path
-//! lookup so spotifai can point it at a translated, zad-schema copy
-//! of this file. spotifai's `api::forward` would then set the env
-//! var on every shelled-out invocation. Until that ships, the
-//! policy is advisory — the system prompt threads it through to the
-//! agent, but zad still consults `~/.zad/services/spotify/...` for
-//! the actual gate. See zad `docs/permissions.md` for the trust
-//! model and signature requirements that the override would have to
-//! preserve.
+//! that remains the authoritative runtime gate. spotifai's file
+//! tells the LLM what surface area to use *and* is pointed at by
+//! `ZAD_PERMISSIONS_PATH` on every `spotifai api …` invocation (see
+//! [`crate::api::forward`]), so zad's runtime check honours the same
+//! file regardless of cwd. The two layers serve different roles:
+//! the prompt-side block keeps the agent from proposing forbidden
+//! verbs in the first place; zad's load-time verification is the
+//! hard gate that fails closed if the agent tries anyway.
 //!
 //! The file ships with a read-only default: every `playlists *` and
 //! `library * save/unsave` verb is on the deny list, and only the

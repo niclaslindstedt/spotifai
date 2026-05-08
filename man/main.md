@@ -17,7 +17,8 @@ _What this command does and when to reach for it._
 | Command | Description |
 |---|---|
 | `install` | Download the pinned zad binary into `~/.spotifai/bin/zad` and scaffold `~/.spotifai/permissions.toml`. Idempotent. |
-| `api`     | Forward to `zad spotify …` after verifying the pinned zad binary. |
+| `auth`    | Forward to `zad service create spotify` (global scope) to register a Spotify Client ID and run the OAuth 2.0 PKCE flow. |
+| `api`     | Forward to `zad spotify …` after verifying the pinned zad binary. The forwarded process gets `ZAD_PERMISSIONS_PATH=~/.spotifai/permissions.toml` so the same policy applies regardless of cwd. |
 | `ask`     | Start an interactive zag session about the user's Spotify library, with `~/.spotifai/permissions.toml` injected into the system prompt. |
 | `help`    | Show help text. |
 
@@ -31,9 +32,13 @@ The same command also writes a default `~/.spotifai/permissions.toml` if one doe
 |---|---|---|---|
 | `--force` | bool | false | Re-download the zad binary even if the existing one already matches the pinned version. (Does not overwrite an existing permissions file.) |
 
+### `spotifai auth`
+
+Runs `~/.spotifai/bin/zad service create spotify` to register Spotify OAuth credentials (Client ID + refresh token) at zad's global scope. Spotify only issues one developer app per user, so the credential intentionally lives at `~/.zad/services/spotify/config.toml` and applies to every directory `spotifai api …` is invoked from. See [`auth.md`](auth.md) for the full reference, including which zad flags pass through.
+
 ### `spotifai api`
 
-Forward-routes everything after `api` to `~/.spotifai/bin/zad spotify …`. See [`api.md`](api.md) for the full reference.
+Forward-routes everything after `api` to `~/.spotifai/bin/zad spotify …`, with `ZAD_PERMISSIONS_PATH` injected so the spotifai-managed permissions file at `~/.spotifai/permissions.toml` is consulted regardless of cwd. See [`api.md`](api.md) for the full reference.
 
 ### `spotifai ask`
 
@@ -73,6 +78,7 @@ spotifai --help
 
 ## See also
 
+- [`auth.md`](auth.md) — `spotifai auth` reference
 - [`api.md`](api.md) — `spotifai api` reference
 - [`ask.md`](ask.md) — `spotifai ask` reference
 - `spotifai commands`

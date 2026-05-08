@@ -20,6 +20,8 @@ Before exec'ing zad, spotifai performs the same install/version check as `spotif
 
 Zad's stdout, stderr, and exit code are propagated verbatim — `spotifai api` returns whatever zad returned.
 
+The forwarded zad process is launched with `ZAD_PERMISSIONS_PATH=~/.spotifai/permissions.toml`. zad ≥ 0.3.0 honours this variable as an explicit local-permissions override, so the spotifai-managed policy file applies regardless of which directory `spotifai api` is invoked from — there is no cwd-dependent project slug to worry about.
+
 ## Arguments
 
 | Argument | Type | Default | Description |
@@ -37,6 +39,12 @@ spotifai api --help
 ## Environment variables
 
 `spotifai api` does not read any environment variables of its own. The forwarded zad process inherits the current environment, so any variables zad consults (Spotify OAuth tokens, keychain hints, etc.) are honoured.
+
+Spotifai sets one variable on the forwarded child:
+
+| Variable | Set to | Why |
+|---|---|---|
+| `ZAD_PERMISSIONS_PATH` | `~/.spotifai/permissions.toml` | Pins zad's local-permissions lookup to the spotifai-managed file so the same policy applies in every cwd. zad ≥ 0.3.0 reads this variable as an explicit override that bypasses the cwd-derived project slug. If the user has already exported `ZAD_PERMISSIONS_PATH`, spotifai's value wins for the duration of the forwarded process. |
 
 ## Exit codes
 
@@ -76,5 +84,6 @@ spotifai api -- tracks --limit=10
 ## See also
 
 - [`main.md`](main.md) — top-level `spotifai` reference
+- [`auth.md`](auth.md) — register Spotify OAuth credentials before running `api …`
 - [`spotifai install`](main.md#spotifai-install) — the same install/version check, run on its own
 - [`.zadrc`](../.zadrc) — pinned zad release tag
