@@ -16,7 +16,16 @@ _What this command does and when to reach for it._
 
 | Command | Description |
 |---|---|
+| `install` | Download the pinned zad binary into `~/.spotifai/bin/zad`. Idempotent. |
 | `help` | Show help text. |
+
+### `spotifai install`
+
+Ensures the zad binary at `~/.spotifai/bin/zad` matches the version pinned in `.zadrc` (baked in at build time). Spotifai forward-routes its `api …` subcommands to this exact path, so the binary on `$PATH` is intentionally never used. Re-runs are no-ops once the right version is present.
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--force` | bool | false | Re-download even if the existing binary already matches the pinned version. |
 
 ## Flags
 
