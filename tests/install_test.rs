@@ -1,7 +1,11 @@
 //! Pure-function tests for `spotifai::install` — no network, no filesystem.
 
+use std::path::PathBuf;
+
 use spotifai::install::{
-    PINNED_VERSION_RAW, asset_name_for, asset_url, parse_version, pinned_version, version_matches,
+    PINNED_VERSION_RAW, ZAD_PERMISSIONS_PATH_ENV, asset_name_for, asset_url,
+    build_permissions_sign_command, build_signing_init_command, command_env, parse_fingerprint,
+    parse_version, pinned_version, version_matches,
 };
 
 #[test]
@@ -61,6 +65,57 @@ fn asset_name_covers_supported_targets() {
 fn asset_name_rejects_unsupported_targets() {
     assert!(asset_name_for("freebsd", "x86_64").is_err());
     assert!(asset_name_for("linux", "riscv64").is_err());
+}
+
+#[test]
+fn parse_fingerprint_extracts_value_from_signing_init_json() {
+    let json = r#"{
+  "command": "signing.init",
+  "fingerprint": "8ce74dee",
+  "rotated": false
+}"#;
+    assert_eq!(parse_fingerprint(json).as_deref(), Some("8ce74dee"));
+}
+
+#[test]
+fn parse_fingerprint_returns_none_when_absent_or_malformed() {
+    assert!(parse_fingerprint("{}").is_none());
+    assert!(parse_fingerprint("not even json").is_none());
+    assert!(parse_fingerprint(r#"{"fingerprint": }"#).is_none());
+}
+
+#[test]
+fn signing_init_command_is_zad_signing_init_with_json_flag() {
+    let zad = PathBuf::from("/tmp/zad");
+    let cmd = build_signing_init_command(&zad);
+    let argv: Vec<_> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    assert_eq!(argv, vec!["signing", "init", "--json"]);
+    // Program path is the zad binary we passed in.
+    assert_eq!(cmd.get_program(), zad.as_os_str());
+}
+
+#[test]
+fn permissions_sign_command_uses_local_and_pins_env_var() {
+    let zad = PathBuf::from("/tmp/zad");
+    let policy = PathBuf::from("/tmp/permissions.toml");
+    let cmd = build_permissions_sign_command(&zad, &policy);
+
+    let argv: Vec<_> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().to_string())
+        .collect();
+    assert_eq!(
+        argv,
+        vec!["spotify", "permissions", "sign", "--local"],
+        "the install flow signs the local file pinned via {ZAD_PERMISSIONS_PATH_ENV}"
+    );
+
+    let env = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV)
+        .expect("ZAD_PERMISSIONS_PATH must be set so zad signs the spotifai-managed file");
+    assert_eq!(env, policy.as_os_str());
 }
 
 #[test]

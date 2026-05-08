@@ -1,11 +1,18 @@
-//! Bootstrap helper that ensures the pinned zad binary lives at
-//! `~/.spotifai/bin/zad`.
+//! Bootstrap helpers for the pinned zad binary at `~/.spotifai/bin/zad`
+//! and the signed permissions file at `~/.spotifai/permissions.toml`.
 //!
-//! spotifai forward-routes Spotify subcommands to this exact path so a
-//! globally-installed zad with mismatched permissions or schema can
-//! never be picked up by accident. The pinned version is baked in at
-//! compile time from `.zadrc` at the repo root.
+//! spotifai forward-routes Spotify subcommands to this exact binary
+//! path so a globally-installed zad with mismatched permissions or
+//! schema can never be picked up by accident. The pinned version is
+//! baked in at compile time from `.zadrc` at the repo root.
+//!
+//! zad ≥ 0.4.0 fails closed on permission files that are not in the
+//! per-machine signed trust store, so the install flow also bootstraps
+//! the local Ed25519 signing key (`zad signing init`) and signs the
+//! spotifai-managed policy file (`zad spotify permissions sign`) before
+//! the first `spotifai api …` call needs it.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::io::copy;
 use std::path::{Path, PathBuf};
@@ -14,6 +21,12 @@ use std::process::Command;
 use anyhow::{Context, Result, anyhow, bail};
 
 use crate::output;
+
+/// Env var zad ≥ 0.3.0 honours for an explicit local-permissions
+/// file. Re-exported here so the install module can sign the
+/// spotifai-managed file in place without hard-coding the global vs.
+/// project-local resolution.
+pub const ZAD_PERMISSIONS_PATH_ENV: &str = "ZAD_PERMISSIONS_PATH";
 
 /// Tag string baked in from `.zadrc` (e.g. `v0.2.0`).
 pub const PINNED_VERSION_RAW: &str = include_str!("../.zadrc");
@@ -192,4 +205,99 @@ fn set_executable(p: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn set_executable(_p: &Path) -> Result<()> {
     Ok(())
+}
+
+/// Run `<zad> signing init` to bootstrap the per-machine Ed25519
+/// signing key in the OS keychain. Idempotent — `signing init` is a
+/// no-op when a key already exists, so this is safe to call on every
+/// `spotifai install` invocation.
+///
+/// On success the keypair lives in the OS keychain (account
+/// `signing:v1`) and a self-signed empty trust store is written to
+/// `~/.zad/signing/trusted.toml`.
+pub fn bootstrap_signing_key(zad: &Path) -> Result<Option<String>> {
+    let out = Command::new(zad)
+        .args(["signing", "init", "--json"])
+        .output()
+        .with_context(|| format!("running {} signing init", zad.display()))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        bail!(
+            "zad signing init failed (exit {}): {}",
+            out.status.code().unwrap_or(-1),
+            stderr.trim()
+        );
+    }
+    Ok(parse_fingerprint(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Run `<zad> spotify permissions sign --local` against the file at
+/// `policy_path`, pinned via `ZAD_PERMISSIONS_PATH`. Adds a
+/// `[signature]` block to the file in place and upserts a trust-store
+/// entry so subsequent `spotifai api …` invocations pass zad's
+/// load-time verification.
+///
+/// Requires [`bootstrap_signing_key`] (or an earlier `zad signing
+/// init`) to have populated the keychain — the call fails with
+/// `SigningKeyMissing` otherwise.
+pub fn sign_permissions_file(zad: &Path, policy_path: &Path) -> Result<()> {
+    let out = Command::new(zad)
+        .args(["spotify", "permissions", "sign", "--local"])
+        .env(ZAD_PERMISSIONS_PATH_ENV, policy_path)
+        .output()
+        .with_context(|| format!("running {} spotify permissions sign --local", zad.display()))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        bail!(
+            "zad spotify permissions sign failed (exit {}): {}",
+            out.status.code().unwrap_or(-1),
+            stderr.trim()
+        );
+    }
+    Ok(())
+}
+
+/// Pull the `fingerprint` field out of `zad signing init --json`
+/// output. Returns `None` for malformed or fingerprint-less JSON so
+/// the install flow can continue with a placeholder rather than
+/// erroring on a purely cosmetic field.
+pub fn parse_fingerprint(json: &str) -> Option<String> {
+    // The JSON shape is small and stable; sidestep adding a
+    // serde_json dep just for this status line by scanning for the
+    // `"fingerprint": "<value>"` token.
+    let needle = "\"fingerprint\"";
+    let start = json.find(needle)? + needle.len();
+    let rest = &json[start..];
+    let colon = rest.find(':')?;
+    let after = &rest[colon + 1..];
+    let open = after.find('"')? + 1;
+    let close_rel = after[open..].find('"')?;
+    Some(after[open..open + close_rel].to_string())
+}
+
+/// Helper used by tests: assemble the same `Command`
+/// [`bootstrap_signing_key`] would build, without spawning it.
+#[doc(hidden)]
+pub fn build_signing_init_command(zad: &Path) -> Command {
+    let mut cmd = Command::new(zad);
+    cmd.args(["signing", "init", "--json"]);
+    cmd
+}
+
+/// Helper used by tests: assemble the same `Command`
+/// [`sign_permissions_file`] would build, without spawning it.
+#[doc(hidden)]
+pub fn build_permissions_sign_command(zad: &Path, policy_path: &Path) -> Command {
+    let mut cmd = Command::new(zad);
+    cmd.args(["spotify", "permissions", "sign", "--local"]);
+    cmd.env(ZAD_PERMISSIONS_PATH_ENV, policy_path);
+    cmd
+}
+
+/// Convenience used by tests: read a single env var off a [`Command`].
+#[doc(hidden)]
+pub fn command_env<'a>(cmd: &'a Command, key: &str) -> Option<&'a OsStr> {
+    cmd.get_envs()
+        .find(|(k, _)| k.to_string_lossy() == key)
+        .and_then(|(_, v)| v)
 }

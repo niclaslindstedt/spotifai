@@ -16,7 +16,7 @@ _What this command does and when to reach for it._
 
 | Command | Description |
 |---|---|
-| `install` | Download the pinned zad binary into `~/.spotifai/bin/zad` and scaffold `~/.spotifai/permissions.toml`. Idempotent. |
+| `install` | Walk the four-step setup that makes `spotifai api` usable: download the pinned zad binary into `~/.spotifai/bin/zad`, bootstrap the local Ed25519 signing key, scaffold `~/.spotifai/permissions.toml`, and sign it so zad's load-time trust check passes. Idempotent. |
 | `auth`    | Forward to `zad service create spotify` (global scope) to register a Spotify Client ID and run the OAuth 2.0 PKCE flow. |
 | `api`     | Forward to `zad spotify …` after verifying the pinned zad binary. The forwarded process gets `ZAD_PERMISSIONS_PATH=~/.spotifai/permissions.toml` so the same policy applies regardless of cwd. |
 | `ask`     | Start an interactive zag session about the user's Spotify library, with `~/.spotifai/permissions.toml` injected into the system prompt. |
@@ -24,13 +24,16 @@ _What this command does and when to reach for it._
 
 ### `spotifai install`
 
-Ensures the zad binary at `~/.spotifai/bin/zad` matches the version pinned in `.zadrc` (baked in at build time). Spotifai forward-routes its `api …` subcommands to this exact path, so the binary on `$PATH` is intentionally never used. Re-runs are no-ops once the right version is present.
+Walks a four-step guided setup. Each step prints a header so a first-time user can see what is happening.
 
-The same command also writes a default `~/.spotifai/permissions.toml` if one does not already exist. The default policy is read-only — `search`, `playlists list/show`, `library tracks/albums list` are allowed; every mutating verb is denied. Hand-edits to an existing file are preserved across re-runs.
+1. **Install zad binary.** Ensures `~/.spotifai/bin/zad` matches the version pinned in `.zadrc` (baked in at build time). Spotifai forward-routes its `api …` subcommands to this exact path, so the binary on `$PATH` is intentionally never used. Re-runs are no-ops once the right version is present.
+2. **Bootstrap signing key.** Runs `zad signing init`, which mints a fresh Ed25519 keypair in the OS keychain (account `signing:v1`) and writes a self-signed empty trust store at `~/.zad/signing/trusted.toml`. Idempotent — when a key already exists, the command prints its fingerprint and leaves the keychain untouched.
+3. **Write default permissions.** Writes a read-only `~/.spotifai/permissions.toml` if no file exists yet. The default policy allows `search`, `playlists list/show`, and `library tracks/albums list`; every mutating verb is denied. Hand-edits to an existing file are preserved across re-runs.
+4. **Sign permissions file.** Runs `zad spotify permissions sign --local` with `ZAD_PERMISSIONS_PATH` pinned at the spotifai-managed file. zad ≥ 0.4.0 fails closed at load time on permission files that are not in the per-machine trust store; signing here is what unblocks the first `spotifai api …` call. The step runs unconditionally on every `install` invocation, so re-running `spotifai install` after a hand-edit resigns the file.
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--force` | bool | false | Re-download the zad binary even if the existing one already matches the pinned version. (Does not overwrite an existing permissions file.) |
+| `--force` | bool | false | Re-download the zad binary even if the existing one already matches the pinned version. (Does not overwrite an existing permissions file; signing always re-runs regardless.) |
 
 ### `spotifai auth`
 
