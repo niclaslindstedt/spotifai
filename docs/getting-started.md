@@ -14,6 +14,23 @@ Confirm the binary is available:
 spotifai --version
 ```
 
+## Set up the local toolchain
+
+`spotifai install` walks a four-step guided setup:
+
+```sh
+spotifai install
+```
+
+It will, in order:
+
+1. Download the pinned zad binary into `~/.spotifai/bin/zad`.
+2. Run `zad signing init` to mint a local Ed25519 signing key in your OS keychain and create the per-machine trust store at `~/.zad/signing/trusted.toml`.
+3. Write a default read-only `~/.spotifai/permissions.toml` (allows `search`, `playlists list/show`, `library {tracks,albums} list`; denies every mutating verb).
+4. Sign that permissions file with `zad spotify permissions sign --local` so zad's load-time trust check accepts it on the first `spotifai api …` call.
+
+Re-run `spotifai install` whenever you edit `~/.spotifai/permissions.toml` — the signing step runs unconditionally and resigns the file in place.
+
 ## Create a Spotify developer app
 
 Spotify hands out **one developer app per user**, so you do this once:

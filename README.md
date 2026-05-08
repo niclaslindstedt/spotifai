@@ -37,8 +37,11 @@ make build
 ## Quick start
 
 ```sh
-# Install the pinned zad binary into ~/.spotifai/bin and write a default
-# read-only permissions file at ~/.spotifai/permissions.toml.
+# Walk the four-step guided setup: install the pinned zad binary into
+# ~/.spotifai/bin, bootstrap the local Ed25519 signing key in your OS
+# keychain, write a default read-only permissions file at
+# ~/.spotifai/permissions.toml, and sign it so zad's load-time trust
+# check accepts it. Re-run after editing the permissions file to resign.
 spotifai install
 
 # Authenticate with Spotify (opens browser for the OAuth 2.0 PKCE flow).
@@ -60,8 +63,9 @@ spotifai ask "What are my most recently added albums?"
 spotifai <command> [options]
 
 Commands:
-  install         Install pinned zad binary into ~/.spotifai/bin and
-                  scaffold the read-only permissions file
+  install         Guided setup: install pinned zad binary, bootstrap
+                  local signing key, scaffold and sign the permissions
+                  file at ~/.spotifai/permissions.toml
   auth [args…]    Forward to `zad service create spotify` (global scope)
                   to register a Spotify Client ID and run OAuth 2.0 PKCE
   api <args…>     Forward to `zad spotify …` with ZAD_PERMISSIONS_PATH
@@ -81,7 +85,8 @@ Run `spotifai help <command>` or see [`man/main.md`](man/main.md) for full flag 
 | File | Purpose |
 |---|---|
 | `~/.spotifai/bin/zad` | Pinned zad binary, written by `spotifai install`. |
-| `~/.spotifai/permissions.toml` | Read-only verb policy injected into the `spotifai ask` system prompt so the agent self-restricts. Defaults to read-only on first install; hand-edit `allowed` / `denied` to widen or narrow. |
+| `~/.spotifai/permissions.toml` | Read-only verb policy injected into the `spotifai ask` system prompt so the agent self-restricts. Defaults to read-only on first install; hand-edit `allowed` / `denied` to widen or narrow, then re-run `spotifai install` so the file is resigned and zad will load it again. |
+| `~/.zad/signing/trusted.toml` | Per-machine signed trust store, populated by `zad signing init` during `spotifai install`. zad ≥ 0.4.0 fails closed at load time on any permissions file whose `[signature]` block is not in this trust store. |
 
 Spotify credentials and zad's own permissions live under `~/.zad/` and
 are managed by zad directly — see

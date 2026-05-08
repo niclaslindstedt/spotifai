@@ -15,7 +15,14 @@ spotifai is configured through environment variables and an optional TOML file a
 
 The default policy allows `search`, `playlists list`, `playlists show`, `library tracks list`, `library albums list`, and denies every mutating verb (`playlists create|rename|delete|add|remove`, `library tracks save|unsave`, `library albums save|unsave`).
 
-This file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's runtime gate continues to be the signed `~/.zad/services/spotify/permissions.toml` file. To widen the spotifai surface, edit `allowed` / `denied` directly; spotifai re-reads the file on every `spotifai ask` invocation. To rewrite the spotifai file back to the read-only default, delete it and re-run `spotifai install`.
+This file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's runtime gate continues to be the signed `~/.zad/services/spotify/permissions.toml` file. To widen the spotifai surface, edit `allowed` / `denied` directly, then re-run `spotifai install` so the file is resigned and zad's load-time trust check accepts it. spotifai re-reads the file on every `spotifai ask` invocation. To rewrite the spotifai file back to the read-only default, delete it and re-run `spotifai install`.
+
+### Signature
+
+zad ≥ 0.4.0 fails closed on any permissions file referenced by `ZAD_PERMISSIONS_PATH` that is not in the per-machine trust store at `~/.zad/signing/trusted.toml`. `spotifai install` handles this for you in two steps:
+
+1. **Bootstrap** — runs `zad signing init` (idempotent), which mints an Ed25519 keypair into the OS keychain (account `signing:v1`) and writes a self-signed empty trust store.
+2. **Sign** — runs `zad spotify permissions sign --local` with `ZAD_PERMISSIONS_PATH` pinned at `~/.spotifai/permissions.toml`, which adds a `[signature]` block to the file and upserts the trust-store entry. Hand edits invalidate the signature, so re-run `spotifai install` after editing.
 
 ## Spotify credentials
 

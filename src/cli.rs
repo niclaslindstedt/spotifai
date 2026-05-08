@@ -103,22 +103,7 @@ pub fn run() -> Result<()> {
             println!("\nRun `spotifai --help` for available commands.");
             Ok(())
         }
-        Some(Command::Install(args)) => {
-            install::ensure_installed(args.force)?;
-            let path = permissions::default_path()?;
-            if permissions::ensure_default(&path)? {
-                output::status(&format!(
-                    "wrote default read-only permissions to {}",
-                    path.display()
-                ));
-            } else {
-                output::info(&format!(
-                    "permissions already present at {}",
-                    path.display()
-                ));
-            }
-            Ok(())
-        }
+        Some(Command::Install(args)) => guided_install(args.force),
         Some(Command::Api(args)) => api::forward(&args.args),
         Some(Command::Ask(args)) => {
             let query = if args.query.is_empty() {
@@ -130,4 +115,46 @@ pub fn run() -> Result<()> {
         }
         Some(Command::Auth(args)) => auth::run(&args.args),
     }
+}
+
+/// Walk the user through the four steps that make `spotifai api …`
+/// usable: install zad, mint the signing key, scaffold the policy
+/// file, sign it. Each step prints a header so a first-time user can
+/// see what is happening.
+fn guided_install(force: bool) -> Result<()> {
+    output::header("spotifai setup");
+
+    output::header("Step 1/4 · Installing zad binary");
+    let zad = install::ensure_installed(force)?;
+
+    output::header("Step 2/4 · Bootstrapping signing key");
+    match install::bootstrap_signing_key(&zad)? {
+        Some(fp) => output::status(&format!("signing key ready (fingerprint: {fp})")),
+        None => output::status("signing key ready"),
+    }
+
+    output::header("Step 3/4 · Writing default permissions");
+    let path = permissions::default_path()?;
+    if permissions::ensure_default(&path)? {
+        output::status(&format!(
+            "wrote default read-only permissions to {}",
+            path.display()
+        ));
+    } else {
+        output::info(&format!(
+            "permissions already present at {}",
+            path.display()
+        ));
+    }
+
+    output::header("Step 4/4 · Signing permissions file");
+    install::sign_permissions_file(&zad, &path)?;
+    output::status(&format!("signed {}", path.display()));
+
+    output::info("");
+    output::info("You're set up. Next:");
+    output::info("  • Register Spotify credentials:  spotifai auth");
+    output::info("  • Try a read-only API call:      spotifai api playlists list");
+    output::info("  • Or chat with the agent:        spotifai ask \"list my playlists\"");
+    Ok(())
 }
