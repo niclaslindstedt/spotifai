@@ -2,27 +2,34 @@
 
 spotifai is configured through environment variables and an optional TOML file at `~/.config/spotifai/config.toml`. Environment variables always take precedence over the file.
 
-## Permissions file (`~/.spotifai/permissions.toml`)
+## Permissions files (`~/.spotifai/permissions/`)
 
-`spotifai ask` reads this TOML file and injects it into the agent's system prompt so the agent self-restricts to the listed `spotifai api` verbs. It is created with a read-only default the first time `spotifai install` runs; subsequent runs leave any hand edits in place.
+Each agent surface (`spotifai ask`, `spotifai playlist`) has its own per-profile permissions file. The matching file is injected into the agent's system prompt so it self-restricts to the listed `spotifai api` verbs, and is also pointed at by `ZAD_PERMISSIONS_PATH` when the agent shells out, so zad's load-time gate sees the same policy.
+
+| Profile | Path | Default surface |
+|---|---|---|
+| `ask`       | `~/.spotifai/permissions/ask.toml`      | Read-only — `search`, `playlists list/show`, `library tracks/albums list`. |
+| `playlist`  | `~/.spotifai/permissions/playlist.toml` | Read + `playlists create`, `playlists add`, `playlists rename`. Destructive verbs (`delete`, `remove`) and library writes stay denied. |
+
+Both files share the same TOML schema:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `mode` | string | `read_only` | Free-form tag for the policy. Informational — the effective gate is the `allowed` / `denied` lists below. |
-| `description` | string | "Read-only access…" | Human-readable summary, embedded verbatim in the system prompt so the agent can quote the policy back to the user. |
-| `allowed` | `[string]` | read-only verbs | `spotifai api` verbs the agent is allowed to invoke (e.g. `playlists list`, `library tracks list`). Strings are the literal subcommand path after `spotifai api `. |
-| `denied`  | `[string]` | every write verb | Verbs the agent must refuse to invoke. Deny always wins. |
+| `mode` | string | `read_only` (ask) / `playlist_curator` (playlist) | Free-form tag for the policy. Informational — the effective gate is the `allowed` / `denied` lists below. |
+| `description` | string | per-profile blurb | Human-readable summary, embedded verbatim in the system prompt so the agent can quote the policy back to the user. |
+| `allowed` | `[string]` | per-profile list | `spotifai api` verbs the agent is allowed to invoke (e.g. `playlists list`, `playlists create`). Strings are the literal subcommand path after `spotifai api `. |
+| `denied`  | `[string]` | per-profile list | Verbs the agent must refuse to invoke. Deny always wins. |
 
-The default policy allows `search`, `playlists list`, `playlists show`, `library tracks list`, `library albums list`, and denies every mutating verb (`playlists create|rename|delete|add|remove`, `library tracks save|unsave`, `library albums save|unsave`).
+Both files are created with their defaults the first time `spotifai install` runs; subsequent runs leave any hand edits in place. To widen or narrow either profile, edit `allowed` / `denied` directly, then re-run `spotifai install` so the file is resigned and zad's load-time trust check accepts it. spotifai re-reads the matching file on every `spotifai ask` / `spotifai playlist` invocation. To rewrite a file back to its default, delete it and re-run `spotifai install`.
 
-This file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's runtime gate continues to be the signed `~/.zad/services/spotify/permissions.toml` file. To widen the spotifai surface, edit `allowed` / `denied` directly, then re-run `spotifai install` so the file is resigned and zad's load-time trust check accepts it. spotifai re-reads the file on every `spotifai ask` invocation. To rewrite the spotifai file back to the read-only default, delete it and re-run `spotifai install`.
+These files are **advisory** — they constrain the agent via prompt injection but are not the authoritative gate. zad's runtime check at load time is what fails closed; spotifai's role is to keep the agent from proposing a forbidden verb in the first place.
 
 ### Signature
 
-zad ≥ 0.4.0 fails closed on any permissions file referenced by `ZAD_PERMISSIONS_PATH` that is not in the per-machine trust store at `~/.zad/signing/trusted.toml`. `spotifai install` handles this for you in two steps:
+zad ≥ 0.4.0 fails closed on any permissions file referenced by `ZAD_PERMISSIONS_PATH` that is not in the per-machine trust store at `~/.zad/signing/trusted.toml`. `spotifai install` handles this for every profile in two steps:
 
 1. **Bootstrap** — runs `zad signing init` (idempotent), which mints an Ed25519 keypair into the OS keychain (account `signing:v1`) and writes a self-signed empty trust store.
-2. **Sign** — runs `zad spotify permissions sign --local` with `ZAD_PERMISSIONS_PATH` pinned at `~/.spotifai/permissions.toml`, which adds a `[signature]` block to the file and upserts the trust-store entry. Hand edits invalidate the signature, so re-run `spotifai install` after editing.
+2. **Sign** — runs `zad spotify permissions sign --local` once per profile with `ZAD_PERMISSIONS_PATH` pinned at the matching `~/.spotifai/permissions/<profile>.toml`. Each call adds a `[signature]` block to that file and upserts the trust-store entry. Hand edits invalidate the signature, so re-run `spotifai install` after editing — every profile file is resigned on each install run.
 
 ## Spotify credentials
 
@@ -32,11 +39,17 @@ zad uses an OAuth 2.0 PKCE *public-client* flow, so there is no `client_secret` 
 
 ## zad permissions path
 
-`spotifai api` sets one environment variable on the forwarded zad child:
+`spotifai api` always sets `ZAD_PERMISSIONS_PATH` on the forwarded zad child:
 
 | Variable | Value | Description |
 |---|---|---|
-| `ZAD_PERMISSIONS_PATH` | `~/.spotifai/permissions.toml` | Pins zad's local-permissions lookup to the spotifai-managed file so the same policy applies regardless of cwd. zad ≥ 0.3.0 reads this variable as an explicit override that bypasses the cwd-derived project slug. |
+| `ZAD_PERMISSIONS_PATH` | `~/.spotifai/permissions/<profile>.toml` | Pins zad's local-permissions lookup to the file backing the active profile. zad ≥ 0.3.0 reads this variable as an explicit override that bypasses the cwd-derived project slug. |
+
+The active profile is selected by the parent spotifai command:
+
+| Variable | Description |
+|---|---|
+| `SPOTIFAI_PROFILE` | Internal coupling between `spotifai ask` / `spotifai playlist` and `spotifai api`. The parent command sets this to `ask` or `playlist` before launching zag, and `spotifai api` reads it to pick which file to point zad at. **Not a user knob**: direct `spotifai api …` invocations from a shell error out with a usage message. To call zad outside spotifai, run `~/.spotifai/bin/zad spotify …` with `ZAD_PERMISSIONS_PATH` set yourself. |
 
 ## Agent (zag)
 

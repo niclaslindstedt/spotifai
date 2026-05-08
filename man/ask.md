@@ -13,9 +13,9 @@ spotifai ask [QUERY]...
 `spotifai ask` opens an interactive [zag](https://github.com/niclaslindstedt/zag) session. The session's system prompt:
 
 1. Tells the agent that every Spotify interaction must go through the `spotifai api …` shell command (not the Spotify Web API directly), because that is where zad's scope and permissions are enforced.
-2. Inlines the contents of `~/.spotifai/permissions.toml` so the agent knows which `spotifai api` verbs it is allowed to invoke.
+2. Inlines the contents of `~/.spotifai/permissions/ask.toml` so the agent knows which `spotifai api` verbs it is allowed to invoke.
 
-Before starting zag, `spotifai ask` runs the same install/version check as `spotifai install` to make sure the pinned `~/.spotifai/bin/zad` binary is on disk, and writes a default read-only permissions file if none exists yet.
+Before starting zag, `spotifai ask` runs the same install/version check as `spotifai install` to make sure the pinned `~/.spotifai/bin/zad` binary is on disk, and writes a default read-only `ask` permissions file if none exists yet.
 
 The optional positional argument becomes the agent's first turn. With no argument, the session opens empty and waits for the user to type. Quit with `Ctrl+D` or whatever exit gesture the active zag provider uses.
 
@@ -35,12 +35,12 @@ The optional positional argument becomes the agent's first turn. With no argumen
 
 ## Permissions
 
-The injected policy lives at `~/.spotifai/permissions.toml`. On first install it's read-only:
+The injected policy lives at `~/.spotifai/permissions/ask.toml`. On first install it's read-only:
 
 - **Allowed**: `search`, `playlists list`, `playlists show`, `library tracks list`, `library albums list`.
 - **Denied**: every mutating verb (`playlists create|rename|delete|add|remove`, `library tracks save|unsave`, `library albums save|unsave`).
 
-Hand-edit the file to widen the surface; spotifai re-reads it on every `spotifai ask` invocation. The agent is forbidden in the system prompt from editing the file or invoking `zad spotify permissions` itself, so widening always requires a deliberate human edit. The permissions file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's own runtime gate continues to be the file at `~/.zad/services/spotify/permissions.toml`.
+The `ask` profile is independent of the `playlist` profile (`~/.spotifai/permissions/playlist.toml`) — edits to one do not affect the other. To widen `ask` past read-only, hand-edit `allowed` / `denied` and re-run `spotifai install` to resign the file; spotifai re-reads it on every `spotifai ask` invocation. The agent is forbidden in the system prompt from editing the file or invoking `zad spotify permissions` itself, so widening always requires a deliberate human edit. The permissions file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's own runtime gate continues to be the file at `~/.zad/services/spotify/permissions.toml`.
 
 ## Exit codes
 
@@ -75,4 +75,5 @@ spotifai ask "show me my 'on repeat' playlist"
 
 - [`main.md`](main.md) — top-level `spotifai` reference
 - [`api.md`](api.md) — the forward-routing shim the agent uses to talk to Spotify
-- [`spotifai install`](main.md#spotifai-install) — installs zad and scaffolds the permissions file
+- [`playlist.md`](playlist.md) — write-side counterpart for building new playlists
+- [`spotifai install`](main.md#spotifai-install) — installs zad and scaffolds the permissions files

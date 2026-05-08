@@ -24,12 +24,12 @@ Neither `zag` nor `zad` imports `spotifai`. The CLI layer never calls Spotify or
 
 ## Request flow
 
-1. User runs `spotifai ask "..."`.
-2. `main.rs` parses the query and output-format flag, then calls `lib::run`.
-3. `lib::run` loads the versioned system prompt from `prompts/` and passes it together with the user's query to `zag`.
-4. `zag` reasons over the query and emits one or more tool calls (e.g. `list_playlists`, `create_playlist`).
-5. `lib.rs` maps each tool call to the corresponding `zad` function and collects the results.
-6. `zag` synthesises a natural-language response from the tool results.
+1. User runs `spotifai ask "..."` or `spotifai playlist "..."`.
+2. `main.rs` parses the query and dispatches via `cli::run` to the matching command module (`ask::run` / `playlist::run`).
+3. The command module picks a `Profile` (`Ask` or `Playlist`), loads the matching `~/.spotifai/permissions/<profile>.toml`, renders the versioned system prompt from `prompts/<name>/<version>.md` with the policy injected, and sets `SPOTIFAI_PROFILE` so child `spotifai api` shells can route to the same file.
+4. zag reasons over the query and emits one or more shell tool calls of the form `spotifai api <verb>`.
+5. `spotifai api` reads `SPOTIFAI_PROFILE`, resolves it to the profile's permissions file, sets `ZAD_PERMISSIONS_PATH`, and forwards to `~/.spotifai/bin/zad spotify <verb>`. zad's load-time trust check verifies the file is signed and that the verb is in the policy.
+6. zad executes the Spotify Web API call and returns its result on stdout; zag synthesises a natural-language response from the tool output.
 7. `output.rs` renders the response in the requested format (`text` or `json`) and writes it to stdout.
 
 ## Prompts
