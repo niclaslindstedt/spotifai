@@ -1,16 +1,22 @@
-//! Bootstrap helpers for the pinned zad binary at `~/.spotifai/bin/zad`
-//! and the signed permissions file at `~/.spotifai/permissions.toml`.
+//! Bootstrap helpers for the pinned zad binary at
+//! `~/.spotifai/bin/zad` and the signed per-provider permissions
+//! files at `~/.spotifai/permissions/<provider>/<profile>.toml`.
 //!
-//! spotifai forward-routes Spotify subcommands to this exact binary
+//! spotifai forward-routes provider subcommands to this exact binary
 //! path so a globally-installed zad with mismatched permissions or
 //! schema can never be picked up by accident. The pinned version is
 //! baked in at compile time from `.zadrc` at the repo root.
 //!
 //! zad ≥ 0.4.0 fails closed on permission files that are not in the
-//! per-machine signed trust store, so the install flow also bootstraps
-//! the local Ed25519 signing key (`zad signing init`) and signs the
-//! spotifai-managed policy file (`zad spotify permissions sign`) before
-//! the first `spotifai api …` call needs it.
+//! per-machine signed trust store, so the install flow also
+//! bootstraps the local Ed25519 signing key (`zad signing init`) and
+//! signs each spotifai-managed policy file (`zad <provider>
+//! permissions sign`) before the first `spotifai api …` call needs
+//! it. Each provider has its own zad subcommand for signing —
+//! `zad spotify permissions sign` for the Spotify profile files,
+//! `zad ymusic permissions sign` for the YouTube Music profile files
+//! — but the rest of the flow (env-var pinning, idempotence) is
+//! identical.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -21,6 +27,7 @@ use std::process::Command;
 use anyhow::{Context, Result, anyhow, bail};
 
 use crate::output;
+use crate::providers::Provider;
 
 /// Env var zad ≥ 0.3.0 honours for an explicit local-permissions
 /// file. Re-exported here so the install module can sign the
@@ -28,7 +35,7 @@ use crate::output;
 /// project-local resolution.
 pub const ZAD_PERMISSIONS_PATH_ENV: &str = "ZAD_PERMISSIONS_PATH";
 
-/// Tag string baked in from `.zadrc` (e.g. `v0.2.0`).
+/// Tag string baked in from `.zadrc` (e.g. `v0.6.0`).
 pub const PINNED_VERSION_RAW: &str = include_str!("../.zadrc");
 
 const REPO: &str = "niclaslindstedt/zad";
@@ -49,11 +56,11 @@ pub fn zad_path() -> Result<PathBuf> {
     Ok(p)
 }
 
-/// Ensure the pinned zad binary is installed at [`zad_path`]. Returns
-/// the absolute path it ended up at.
+/// Ensure the pinned zad binary is installed at [`zad_path`].
+/// Returns the absolute path it ended up at.
 ///
-/// `force` re-downloads even when the existing binary already reports
-/// the correct version.
+/// `force` re-downloads even when the existing binary already
+/// reports the correct version.
 pub fn ensure_installed(force: bool) -> Result<PathBuf> {
     let target = zad_path()?;
     let pinned = pinned_version();
@@ -91,8 +98,8 @@ pub fn ensure_installed(force: bool) -> Result<PathBuf> {
 /// Run `<binary> --version` and parse the trailing version token.
 ///
 /// Returns `Ok(None)` if the binary is missing. Errors only on real
-/// I/O / parse failures so callers can treat "not installed" the same
-/// as "wrong version".
+/// I/O / parse failures so callers can treat "not installed" the
+/// same as "wrong version".
 pub fn current_version(binary: &Path) -> Result<Option<String>> {
     if !binary.exists() {
         return Ok(None);
@@ -110,8 +117,9 @@ pub fn current_version(binary: &Path) -> Result<Option<String>> {
         .ok_or_else(|| anyhow!("could not parse version from `{}`", stdout.trim()))
 }
 
-/// Pull the trailing whitespace-separated token from a `<name> <version>`
-/// line as printed by clap's `--version`. Tolerant of multi-line output.
+/// Pull the trailing whitespace-separated token from a `<name>
+/// <version>` line as printed by clap's `--version`. Tolerant of
+/// multi-line output.
 pub fn parse_version(s: &str) -> Option<String> {
     let line = s.lines().next()?.trim();
     let token = line.split_whitespace().next_back()?;
@@ -121,8 +129,8 @@ pub fn parse_version(s: &str) -> Option<String> {
     Some(token.to_string())
 }
 
-/// Compare `zad --version` output (e.g. `0.2.0`) against a `.zadrc` tag
-/// (e.g. `v0.2.0`). The leading `v` is optional on either side.
+/// Compare `zad --version` output (e.g. `0.6.0`) against a `.zadrc`
+/// tag (e.g. `v0.6.0`). The leading `v` is optional on either side.
 pub fn version_matches(installed: &str, pinned: &str) -> bool {
     strip_v(installed.trim()) == strip_v(pinned.trim())
 }
@@ -131,8 +139,9 @@ fn strip_v(s: &str) -> &str {
     s.strip_prefix('v').unwrap_or(s)
 }
 
-/// Build the `https://github.com/<repo>/releases/download/<tag>/<asset>`
-/// URL for the current host. Errors on unsupported OS/arch combinations.
+/// Build the
+/// `https://github.com/<repo>/releases/download/<tag>/<asset>` URL
+/// for the current host. Errors on unsupported OS/arch combinations.
 pub fn asset_url(tag: &str) -> Result<String> {
     let asset = asset_name()?;
     Ok(format!(
@@ -140,8 +149,8 @@ pub fn asset_url(tag: &str) -> Result<String> {
     ))
 }
 
-/// Compute the release asset filename for the current host, mirroring
-/// zad's own `scripts/install.sh` naming.
+/// Compute the release asset filename for the current host,
+/// mirroring zad's own `scripts/install.sh` naming.
 pub fn asset_name() -> Result<String> {
     asset_name_for(std::env::consts::OS, std::env::consts::ARCH)
 }
@@ -231,25 +240,36 @@ pub fn bootstrap_signing_key(zad: &Path) -> Result<Option<String>> {
     Ok(parse_fingerprint(&String::from_utf8_lossy(&out.stdout)))
 }
 
-/// Run `<zad> spotify permissions sign --local` against the file at
-/// `policy_path`, pinned via `ZAD_PERMISSIONS_PATH`. Adds a
-/// `[signature]` block to the file in place and upserts a trust-store
-/// entry so subsequent `spotifai api …` invocations pass zad's
-/// load-time verification.
+/// Run `<zad> <provider> permissions sign --local` against the file
+/// at `policy_path`, pinned via `ZAD_PERMISSIONS_PATH`. Adds a
+/// `[signature]` block to the file in place and upserts a
+/// trust-store entry so subsequent `spotifai api …` invocations pass
+/// zad's load-time verification.
+///
+/// Each provider has its own zad subcommand for signing
+/// (`zad spotify permissions sign`, `zad ymusic permissions sign`,
+/// …), but the env-var pin and the `--local` scope flag are shared.
 ///
 /// Requires [`bootstrap_signing_key`] (or an earlier `zad signing
 /// init`) to have populated the keychain — the call fails with
 /// `SigningKeyMissing` otherwise.
-pub fn sign_permissions_file(zad: &Path, policy_path: &Path) -> Result<()> {
+pub fn sign_permissions_file(zad: &Path, provider: Provider, policy_path: &Path) -> Result<()> {
     let out = Command::new(zad)
-        .args(["spotify", "permissions", "sign", "--local"])
+        .args([provider.zad_subcommand(), "permissions", "sign", "--local"])
         .env(ZAD_PERMISSIONS_PATH_ENV, policy_path)
         .output()
-        .with_context(|| format!("running {} spotify permissions sign --local", zad.display()))?;
+        .with_context(|| {
+            format!(
+                "running {} {} permissions sign --local",
+                zad.display(),
+                provider.zad_subcommand(),
+            )
+        })?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         bail!(
-            "zad spotify permissions sign failed (exit {}): {}",
+            "zad {} permissions sign failed (exit {}): {}",
+            provider.zad_subcommand(),
             out.status.code().unwrap_or(-1),
             stderr.trim()
         );
@@ -287,9 +307,13 @@ pub fn build_signing_init_command(zad: &Path) -> Command {
 /// Helper used by tests: assemble the same `Command`
 /// [`sign_permissions_file`] would build, without spawning it.
 #[doc(hidden)]
-pub fn build_permissions_sign_command(zad: &Path, policy_path: &Path) -> Command {
+pub fn build_permissions_sign_command(
+    zad: &Path,
+    provider: Provider,
+    policy_path: &Path,
+) -> Command {
     let mut cmd = Command::new(zad);
-    cmd.args(["spotify", "permissions", "sign", "--local"]);
+    cmd.args([provider.zad_subcommand(), "permissions", "sign", "--local"]);
     cmd.env(ZAD_PERMISSIONS_PATH_ENV, policy_path);
     cmd
 }

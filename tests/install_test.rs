@@ -7,6 +7,7 @@ use spotifai::install::{
     build_permissions_sign_command, build_signing_init_command, command_env, parse_fingerprint,
     parse_version, pinned_version, version_matches,
 };
+use spotifai::providers::Provider;
 
 #[test]
 fn pinned_version_matches_zadrc_trimmed() {
@@ -21,20 +22,20 @@ fn pinned_version_matches_zadrc_trimmed() {
 
 #[test]
 fn parse_version_picks_trailing_token() {
-    assert_eq!(parse_version("zad 0.2.0\n").as_deref(), Some("0.2.0"));
-    assert_eq!(parse_version("zad v0.2.0").as_deref(), Some("v0.2.0"));
-    assert_eq!(parse_version("0.2.0\nignored\n").as_deref(), Some("0.2.0"));
+    assert_eq!(parse_version("zad 0.6.0\n").as_deref(), Some("0.6.0"));
+    assert_eq!(parse_version("zad v0.6.0").as_deref(), Some("v0.6.0"));
+    assert_eq!(parse_version("0.6.0\nignored\n").as_deref(), Some("0.6.0"));
     assert_eq!(parse_version(""), None);
     assert_eq!(parse_version("\n"), None);
 }
 
 #[test]
 fn version_matches_strips_v_prefix_either_side() {
-    assert!(version_matches("0.2.0", "v0.2.0"));
-    assert!(version_matches("v0.2.0", "0.2.0"));
-    assert!(version_matches("v0.2.0", "v0.2.0"));
-    assert!(!version_matches("0.2.0", "v0.3.0"));
-    assert!(!version_matches("0.2.0", "v0.2.1"));
+    assert!(version_matches("0.6.0", "v0.6.0"));
+    assert!(version_matches("v0.6.0", "0.6.0"));
+    assert!(version_matches("v0.6.0", "v0.6.0"));
+    assert!(!version_matches("0.6.0", "v0.6.1"));
+    assert!(!version_matches("0.5.0", "v0.6.0"));
 }
 
 #[test]
@@ -98,27 +99,40 @@ fn signing_init_command_is_zad_signing_init_with_json_flag() {
 }
 
 #[test]
-fn permissions_sign_command_uses_local_and_pins_env_var() {
-    // Exercise both per-profile paths since the install flow now signs
-    // each one; the underlying command builder must accept either.
-    for filename in ["ask.toml", "playlist.toml"] {
-        let zad = PathBuf::from("/tmp/zad");
-        let policy = PathBuf::from(format!("/tmp/permissions/{filename}"));
-        let cmd = build_permissions_sign_command(&zad, &policy);
+fn permissions_sign_command_uses_provider_subcommand_and_pins_env_var() {
+    // Exercise both supported providers; each one signs through its
+    // own zad subcommand (`zad spotify permissions sign`,
+    // `zad ymusic permissions sign`, …) but pins the same
+    // ZAD_PERMISSIONS_PATH env var. The install flow signs each
+    // (provider, profile) file in turn.
+    for provider in [Provider::Spotify, Provider::YouTubeMusic] {
+        for filename in ["ask.toml", "playlist.toml"] {
+            let zad = PathBuf::from("/tmp/zad");
+            let policy =
+                PathBuf::from(format!("/tmp/permissions/{}/{filename}", provider.as_str()));
+            let cmd = build_permissions_sign_command(&zad, provider, &policy);
 
-        let argv: Vec<_> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().to_string())
-            .collect();
-        assert_eq!(
-            argv,
-            vec!["spotify", "permissions", "sign", "--local"],
-            "the install flow signs each profile file pinned via {ZAD_PERMISSIONS_PATH_ENV}"
-        );
+            let argv: Vec<_> = cmd
+                .get_args()
+                .map(|a| a.to_string_lossy().to_string())
+                .collect();
+            assert_eq!(
+                argv,
+                vec![
+                    provider.zad_subcommand().to_string(),
+                    "permissions".to_string(),
+                    "sign".to_string(),
+                    "--local".to_string(),
+                ],
+                "the install flow signs each profile file via `zad {} permissions sign --local` \
+                 pinned via {ZAD_PERMISSIONS_PATH_ENV}",
+                provider.zad_subcommand(),
+            );
 
-        let env = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV)
-            .expect("ZAD_PERMISSIONS_PATH must be set so zad signs the per-profile file");
-        assert_eq!(env, policy.as_os_str());
+            let env = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV)
+                .expect("ZAD_PERMISSIONS_PATH must be set so zad signs the per-profile file");
+            assert_eq!(env, policy.as_os_str());
+        }
     }
 }
 
@@ -126,12 +140,12 @@ fn permissions_sign_command_uses_local_and_pins_env_var() {
 fn asset_url_uses_releases_download_path() {
     // Avoid coupling to the host arch by going through asset_name_for.
     let asset = asset_name_for("linux", "x86_64").unwrap();
-    let url = asset_url("v0.2.0").unwrap();
+    let url = asset_url("v0.6.0").unwrap();
     // We can't assert full equality (depends on host), but it must point
     // at the niclaslindstedt/zad release-download path with the tag we
     // passed in.
     assert!(
-        url.starts_with("https://github.com/niclaslindstedt/zad/releases/download/v0.2.0/zad-"),
+        url.starts_with("https://github.com/niclaslindstedt/zad/releases/download/v0.6.0/zad-"),
         "url = {url}"
     );
     // Sanity: the asset name we computed for linux-x86_64 matches the
