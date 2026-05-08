@@ -17,7 +17,8 @@ _What this command does and when to reach for it._
 | Command | Description |
 |---|---|
 | `install` | Download the pinned zad binary into `~/.spotifai/bin/zad`. Idempotent. |
-| `help` | Show help text. |
+| `api`     | Forward to `zad spotify …` after verifying the pinned zad binary. |
+| `help`    | Show help text. |
 
 ### `spotifai install`
 
@@ -26,6 +27,10 @@ Ensures the zad binary at `~/.spotifai/bin/zad` matches the version pinned in `.
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--force` | bool | false | Re-download even if the existing binary already matches the pinned version. |
+
+### `spotifai api`
+
+Forward-routes everything after `api` to `~/.spotifai/bin/zad spotify …`. See [`api.md`](api.md) for the full reference.
 
 ## Flags
 
@@ -55,5 +60,6 @@ spotifai --help
 
 ## See also
 
+- [`api.md`](api.md) — `spotifai api` reference
 - `spotifai commands`
 - `spotifai docs`

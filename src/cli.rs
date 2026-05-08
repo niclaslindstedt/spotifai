@@ -8,7 +8,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crate::install;
+use crate::{api, install};
 
 #[derive(Debug, Parser)]
 #[command(name = "spotifai", version, about, long_about = None)]
@@ -25,6 +25,16 @@ pub enum Command {
     /// Idempotent: a no-op when the existing binary already reports
     /// the pinned version. Pass `--force` to re-download anyway.
     Install(InstallArgs),
+
+    /// Forward to `zad spotify …` after verifying the pinned zad
+    /// binary is installed.
+    ///
+    /// Everything after `api` is passed through verbatim, so
+    /// `spotifai api playlists list` becomes
+    /// `~/.spotifai/bin/zad spotify playlists list`. The pinned
+    /// version from `.zadrc` is checked (and downloaded if missing
+    /// or stale) on every invocation.
+    Api(ApiArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -32,6 +42,13 @@ pub struct InstallArgs {
     /// Re-download even if the existing binary already matches the pinned version.
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ApiArgs {
+    /// Arguments forwarded as-is to `zad spotify`.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub args: Vec<String>,
 }
 
 /// Entry point invoked by `main.rs`.
@@ -48,5 +65,6 @@ pub fn run() -> Result<()> {
             install::ensure_installed(args.force)?;
             Ok(())
         }
+        Some(Command::Api(args)) => api::forward(&args.args),
     }
 }
