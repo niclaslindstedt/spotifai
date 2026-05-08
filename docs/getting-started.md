@@ -16,29 +16,38 @@ spotifai --version
 
 ## Create a Spotify developer app
 
+Spotify hands out **one developer app per user**, so you do this once:
+
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and log in.
 2. Click **Create app**, give it any name (e.g. "spotifai-local").
-3. Under **Redirect URIs**, add `http://localhost:8888/callback` and save.
-4. Copy the **Client ID** and **Client Secret** from the app settings.
-
-## Configure credentials
-
-Export them as environment variables (or add to `~/.config/spotifai/config.toml`):
-
-```sh
-export SPOTIFY_CLIENT_ID=your_client_id
-export SPOTIFY_CLIENT_SECRET=your_client_secret
-```
+3. Under **Redirect URIs**, add `http://127.0.0.1` and save. zad's loopback listener picks a random port; Spotify accepts any port on `127.0.0.1` once the host is registered.
+4. Copy the **Client ID** from the app settings. (The Client Secret is unused — zad uses an OAuth 2.0 PKCE *public-client* flow, which doesn't accept one.)
 
 ## First run
 
-Authenticate — this opens a browser for the Spotify OAuth consent screen:
+Authenticate — this forwards to `zad service create spotify` at zad's **global** scope and opens a browser for the Spotify consent screen:
 
 ```sh
 spotifai auth
 ```
 
-After granting access the browser redirects to localhost and spotifai stores a token in `~/.config/spotifai/token.json`. You only need to do this once (tokens are refreshed automatically).
+After granting access, zad captures the redirect on `http://127.0.0.1:<random-port>`, exchanges the authorization code for a refresh token, and stores `client_id` + the refresh token in your OS keychain. Configuration lands at `~/.zad/services/spotify/config.toml`. You only need to do this once — refresh tokens are minted on every later `spotifai api …` call automatically.
+
+If you'd rather skip the interactive prompt, pass the Client ID up front:
+
+```sh
+spotifai auth --client-id <your-client-id>
+```
+
+For headless / CI setups, supply a pre-minted refresh token:
+
+```sh
+export SPOTIFY_REFRESH_TOKEN=...
+spotifai auth \
+    --client-id <your-client-id> \
+    --refresh-token-env SPOTIFY_REFRESH_TOKEN \
+    --no-browser --non-interactive
+```
 
 ## Your first query
 

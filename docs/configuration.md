@@ -19,11 +19,17 @@ This file is **advisory** — it constrains the agent via prompt injection but i
 
 ## Spotify credentials
 
-| Key (`config.toml`) | Environment variable | Type | Default | Description |
-|---------------------|---------------------|------|---------|-------------|
-| `client_id` | `SPOTIFY_CLIENT_ID` | string | — | Spotify app client ID. **Required.** |
-| `client_secret` | `SPOTIFY_CLIENT_SECRET` | string | — | Spotify app client secret. **Required.** |
-| `redirect_uri` | `SPOTIFY_REDIRECT_URI` | string | `http://localhost:8888/callback` | OAuth redirect URI — must match the value in your Spotify app dashboard. |
+Spotify credentials are managed by zad, not spotifai. Run [`spotifai auth`](../man/auth.md) to register them; the command forwards to `zad service create spotify` at zad's **global** scope (no `--local`) and stores the Client ID and OAuth refresh token in your OS keychain. The resulting config lives at `~/.zad/services/spotify/config.toml` and applies to every directory `spotifai api …` is invoked from.
+
+zad uses an OAuth 2.0 PKCE *public-client* flow, so there is no `client_secret` and no fixed redirect-URI port: the loopback listener picks a random port on `127.0.0.1` at runtime. Just register the host `http://127.0.0.1` in your Spotify dashboard once.
+
+## zad permissions path
+
+`spotifai api` sets one environment variable on the forwarded zad child:
+
+| Variable | Value | Description |
+|---|---|---|
+| `ZAD_PERMISSIONS_PATH` | `~/.spotifai/permissions.toml` | Pins zad's local-permissions lookup to the spotifai-managed file so the same policy applies regardless of cwd. zad ≥ 0.3.0 reads this variable as an explicit override that bypasses the cwd-derived project slug. |
 
 ## Agent (zag)
 
@@ -40,9 +46,8 @@ This file is **advisory** — it constrains the agent via prompt injection but i
 ## Example `config.toml`
 
 ```toml
-client_id     = "abc123"
-client_secret = "def456"
-redirect_uri  = "http://localhost:8888/callback"
 model         = "claude-sonnet-4-6"
 output        = "text"
 ```
+
+Spotify credentials are not configured here — they live in the OS keychain and are written by `spotifai auth`.

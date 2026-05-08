@@ -1,14 +1,19 @@
 //! `spotifai` CLI surface (clap-derived).
 //!
-//! Today the only user-facing subcommand is `install`, which fetches the
-//! pinned zad release into `~/.spotifai/bin/zad`. Forward-routing
-//! subcommands (`spotifai api …` → `zad spotify …`) will live alongside
-//! it and call [`crate::install::ensure_installed`] before exec'ing zad.
+//! Subcommands break down into two categories:
+//!
+//! - `install` provisions the pinned zad binary into
+//!   `~/.spotifai/bin/zad` and scaffolds the read-only permissions file.
+//! - `auth`, `api`, and `ask` are forwarders. They each call
+//!   [`crate::install::ensure_installed`] first, then exec the managed
+//!   zad binary (or hand control to zag for `ask`). `auth` registers
+//!   credentials at zad's global scope; `api` runs `zad spotify …`
+//!   with `ZAD_PERMISSIONS_PATH` pinned to spotifai's policy file.
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crate::{api, ask, install, output, permissions};
+use crate::{api, ask, auth, install, output, permissions};
 
 #[derive(Debug, Parser)]
 #[command(name = "spotifai", version, about, long_about = None)]
@@ -45,6 +50,17 @@ pub enum Command {
     /// turn; with no argument the session opens empty and waits for
     /// the user to type.
     Ask(AskArgs),
+
+    /// Register Spotify OAuth credentials by forwarding to
+    /// `zad service create spotify` (global scope, no `--local`).
+    ///
+    /// Spotify only issues one developer app per user, so the
+    /// resulting `client_id` + refresh token are stored at
+    /// `~/.zad/services/spotify/...` and apply to every directory
+    /// `spotifai api …` is invoked from. Anything after `auth` is
+    /// passed through verbatim to zad — `--client-id`,
+    /// `--no-browser`, `--non-interactive`, etc.
+    Auth(AuthArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -68,6 +84,13 @@ pub struct AskArgs {
     /// session with no opener.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub query: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct AuthArgs {
+    /// Arguments forwarded as-is to `zad service create spotify`.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub args: Vec<String>,
 }
 
 /// Entry point invoked by `main.rs`.
@@ -105,5 +128,6 @@ pub fn run() -> Result<()> {
             };
             ask::run(query.as_deref())
         }
+        Some(Command::Auth(args)) => auth::run(&args.args),
     }
 }
