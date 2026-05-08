@@ -2221,7 +2221,10 @@ dependencies = [
  "clap",
  "dirs",
  "reqwest",
+ "serde",
  "tempfile",
+ "tokio",
+ "toml",
  "zag",
 ]
 

@@ -37,14 +37,18 @@ make build
 ## Quick start
 
 ```sh
-# Authenticate (opens browser for Spotify OAuth)
-spotifai auth
+# Install the pinned zad binary into ~/.spotifai/bin and write a default
+# read-only permissions file at ~/.spotifai/permissions.toml.
+spotifai install
 
-# Ask a natural-language question about your library
+# Authenticate with Spotify via zad (opens browser for OAuth).
+~/.spotifai/bin/zad service create spotify
+~/.spotifai/bin/zad service enable spotify
+
+# Ask a natural-language question about your library — the agent talks
+# to Spotify only through `spotifai api …` and self-restricts to the
+# verbs in ~/.spotifai/permissions.toml.
 spotifai ask "What are my most recently added albums?"
-
-# Create a playlist
-spotifai ask "Create a playlist called Morning Run with upbeat tracks"
 ```
 
 ## Usage
@@ -53,14 +57,14 @@ spotifai ask "Create a playlist called Morning Run with upbeat tracks"
 spotifai <command> [options]
 
 Commands:
-  install       Download and install the pinned zad binary into ~/.spotifai/bin
-  auth          Authenticate with Spotify (OAuth flow)
-  ask <query>   Send a natural-language query to the agent
-  help          Print help for a command
+  install         Install pinned zad binary into ~/.spotifai/bin and
+                  scaffold the read-only permissions file
+  api <args…>     Forward to `zad spotify …`
+  ask [query…]    Start an interactive zag session about your Spotify
+                  library, with the local permissions file injected
+  help            Print help for a command
 
 Options:
-  -o, --output <format>   Output format: text (default), json
-  -v, --verbose           Print agent reasoning steps
       --version           Print version
 ```
 
@@ -68,16 +72,17 @@ Run `spotifai help <command>` or see [`man/main.md`](man/main.md) for full flag 
 
 ## Configuration
 
-spotifai reads configuration from environment variables and an optional config file at `~/.config/spotifai/config.toml`.
+| File | Purpose |
+|---|---|
+| `~/.spotifai/bin/zad` | Pinned zad binary, written by `spotifai install`. |
+| `~/.spotifai/permissions.toml` | Read-only verb policy injected into the `spotifai ask` system prompt so the agent self-restricts. Defaults to read-only on first install; hand-edit `allowed` / `denied` to widen or narrow. |
 
-| Key | Env var | Default | Description |
-|-----|---------|---------|-------------|
-| `client_id` | `SPOTIFY_CLIENT_ID` | — | Spotify app client ID (required) |
-| `client_secret` | `SPOTIFY_CLIENT_SECRET` | — | Spotify app client secret (required) |
-| `redirect_uri` | `SPOTIFY_REDIRECT_URI` | `http://localhost:8888/callback` | OAuth redirect URI |
-| `model` | `SPOTIFAI_MODEL` | provider default | LLM model passed to zag |
+Spotify credentials and zad's own permissions live under `~/.zad/` and
+are managed by zad directly — see
+[zad's docs/configuration.md](https://github.com/niclaslindstedt/zad/blob/main/docs/configuration.md)
+for the full reference.
 
-See [docs/configuration.md](docs/configuration.md) for the full reference.
+See [docs/configuration.md](docs/configuration.md) for the spotifai-side reference.
 
 ## Examples
 

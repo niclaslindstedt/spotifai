@@ -66,10 +66,35 @@ right one before adding code:
   `$PATH` never matters and a globally-installed `zad` cannot accidentally be
   used with mismatched permissions or schema.
 
+To install or update the local zad binary, run **`spotifai install`** (or
+`spotifai install --force` to redownload). The command reads `.zadrc`, fetches
+the matching release into `~/.spotifai/bin/zad`, and as a side effect scaffolds
+a default read-only `~/.spotifai/permissions.toml` if one does not already
+exist. Both `spotifai api` and `spotifai ask` re-run this install/version
+check on every invocation, so an explicit install step is only needed when
+you want to surface install errors up front (e.g. in a CI job) or when you
+need to refresh the binary after bumping `.zadrc`. Do **not** install zad via
+`cargo install zad`, `~/.zad/...`, or distro packages — spotifai always
+invokes the absolute `~/.spotifai/bin/zad` path so a `$PATH`-installed zad
+will be ignored.
+
 When bumping `.zadrc`, verify the targeted release exists at
 `https://github.com/niclaslindstedt/zad/releases/tag/<version>` and run any
 forward-routed subcommands locally — zad's CLI surface is not yet stable across
 minor versions.
+
+### Permissions file (`~/.spotifai/permissions.toml`)
+
+`spotifai ask` reads this TOML file and injects it into the agent's system
+prompt so the agent self-restricts to a listed set of `spotifai api` verbs.
+The first run of `spotifai install` writes a read-only default; subsequent
+runs preserve any hand edits. The file lives in `~/.spotifai/` (not in the
+project) so the same policy applies to every directory the user runs
+`spotifai ask` from. See [`src/permissions.rs`](src/permissions.rs) for the
+schema and [`docs/configuration.md`](docs/configuration.md) for the user-facing
+reference. The file is **advisory** — it tells the LLM what surface to use
+but does not replace zad's own signed `~/.zad/services/spotify/permissions.toml`,
+which is the authoritative runtime gate.
 
 ## Where new code goes
 

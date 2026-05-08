@@ -8,7 +8,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crate::{api, install};
+use crate::{api, ask, install, output, permissions};
 
 #[derive(Debug, Parser)]
 #[command(name = "spotifai", version, about, long_about = None)]
@@ -35,6 +35,16 @@ pub enum Command {
     /// version from `.zadrc` is checked (and downloaded if missing
     /// or stale) on every invocation.
     Api(ApiArgs),
+
+    /// Start an interactive zag session pre-loaded with a system
+    /// prompt that tells the agent how to use `spotifai api …` and
+    /// injects `~/.spotifai/permissions.toml` so the agent
+    /// self-restricts to the verbs the user has allowed.
+    ///
+    /// The optional positional argument becomes the agent's first
+    /// turn; with no argument the session opens empty and waits for
+    /// the user to type.
+    Ask(AskArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -51,6 +61,15 @@ pub struct ApiArgs {
     pub args: Vec<String>,
 }
 
+#[derive(Debug, clap::Args)]
+pub struct AskArgs {
+    /// Optional question. Joined with spaces and used as the agent's
+    /// first turn. Omit to drop straight into the interactive
+    /// session with no opener.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub query: Vec<String>,
+}
+
 /// Entry point invoked by `main.rs`.
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -63,8 +82,28 @@ pub fn run() -> Result<()> {
         }
         Some(Command::Install(args)) => {
             install::ensure_installed(args.force)?;
+            let path = permissions::default_path()?;
+            if permissions::ensure_default(&path)? {
+                output::status(&format!(
+                    "wrote default read-only permissions to {}",
+                    path.display()
+                ));
+            } else {
+                output::info(&format!(
+                    "permissions already present at {}",
+                    path.display()
+                ));
+            }
             Ok(())
         }
         Some(Command::Api(args)) => api::forward(&args.args),
+        Some(Command::Ask(args)) => {
+            let query = if args.query.is_empty() {
+                None
+            } else {
+                Some(args.query.join(" "))
+            };
+            ask::run(query.as_deref())
+        }
     }
 }
