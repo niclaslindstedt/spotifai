@@ -16,7 +16,7 @@ spotifai playlist [--provider <slug>] [QUERY]...
 2. Inlines the contents of `~/.spotifai/permissions/<provider>/playlist.toml` so the agent knows which `spotifai api` verbs it is allowed to invoke.
 3. Frames the task as a one-shot playlist build: search the catalogue, pick tracks/videos, create a new playlist, add the items, and optionally rename it. Destructive verbs (`playlists delete`, `playlists remove`) and library writes stay denied.
 
-Before starting zag, `spotifai playlist` runs the same install/version check as `spotifai install` to make sure the pinned `~/.spotifai/bin/zad` binary is on disk, and writes a default `playlist` permissions file for the active provider if none exists yet.
+Before starting zag, `spotifai playlist` ensures `~/.spotifai/permissions/<provider>/playlist.toml` exists (scaffolding it with the default playlist-curator policy if not). The zad library is consumed in-process — there is no separate binary to install — so no version check runs here.
 
 The optional positional argument becomes the agent's first turn — usually a brief like `"a 30-minute focus playlist with no vocals"`. With no argument, the session opens empty and waits for the user to type. Quit with `Ctrl+D` or whatever exit gesture the active zag provider uses.
 
@@ -44,14 +44,14 @@ The injected policy lives at `~/.spotifai/permissions/<provider>/playlist.toml`.
 - **YouTube Music allowed**: `search`, `playlists list`, `playlists show`, `playlists create`, `playlists add`, `playlists rename`, `library list`.
 - **YouTube Music denied**: `playlists delete`, `playlists remove`, `library like`, `library unlike`.
 
-The `playlist` profile is independent of the `ask` profile. To narrow or widen `playlist`, hand-edit `allowed` / `denied` and re-run `spotifai install` to resign the file; spotifai re-reads it on every `spotifai playlist` invocation. The agent is forbidden in the system prompt from editing the file or invoking `zad <provider> permissions` itself, so widening always requires a deliberate human edit. The permissions file is **advisory** — it constrains the agent via prompt injection but is not enforced by zad. zad's own runtime gate continues to be the file at `~/.zad/services/<provider>/permissions.toml`.
+The `playlist` profile is independent of the `ask` profile. To narrow or widen `playlist`, hand-edit `allowed` / `denied` and re-run `spotifai install` to resign the file; spotifai re-reads it on every `spotifai playlist` invocation. The agent is forbidden in the system prompt from editing the file itself, so widening always requires a deliberate human edit. The permissions file is **advisory** — it constrains the agent via prompt injection — but zad's library-side trust check at load time is the authoritative gate: the file is rejected if its signature is not in `~/.zad/signing/trusted.toml`.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | zag session ended cleanly. |
-| 1 | Generic spotifai error (zad install failure, missing home directory, permissions parse error, runtime build failure). |
+| 1 | Generic spotifai error (missing home directory, permissions parse error, tokio runtime build failure, prompt rendering failure). |
 | 2 | Usage error parsing `spotifai playlist` itself. |
 | *N* | Any other code is propagated from zag's terminal exit. |
 
@@ -79,5 +79,5 @@ spotifai playlist
 
 - [`main.md`](main.md) — top-level `spotifai` reference
 - [`ask.md`](ask.md) — read-only counterpart for questions about your library
-- [`api.md`](api.md) — the forward-routing shim the agent uses
-- [`spotifai install`](main.md#spotifai-install) — installs zad and scaffolds the permissions files
+- [`api.md`](api.md) — the typed-dispatch shim the agent uses
+- [`install.md`](install.md) — bootstraps the trust store and scaffolds the permissions files

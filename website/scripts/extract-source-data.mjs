@@ -5,7 +5,7 @@ import path from "node:path";
 
 const out = {
   name: "spotifai",
-  description: "A Rust CLI for managing your Spotify library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify integration).",
+  description: "A Rust CLI for managing your music library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify / YouTube Music integration).",
   generatedAt: new Date().toISOString(),
 };
 

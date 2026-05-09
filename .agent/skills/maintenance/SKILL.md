@@ -24,12 +24,14 @@ The registry is the single source of truth for which sync skills exist in this r
 | `sync-oss-spec`   | Repo contents vs. the latest `OSS_SPEC.md` fetched from GitHub (standalone — no external validator binary) | all structural §§ + §21.5 | 1 — run first so every downstream skill reads the freshest spec |
 | `update-docs`     | `docs/*.md` vs. source of truth                                                                             | §11.1                     | 2 |
 | `update-readme`   | `README.md` vs. current public surface                                                                      | §3                        | 3 |
-| `update-prompts`  | `prompts/**` vs. code and embedded sources                                                                  | §13.5                     | 4 |
+| `update-manpages` | `man/<cmd>.md` vs. CLI parser and command behaviour                                                         | §12.3, §12.5              | 4 |
+| `update-prompts`  | `prompts/**` vs. code and embedded sources                                                                  | §13.5                     | 5 |
+| `update-website`  | `website/**` vs. `README.md`, `docs/`, `OSS_SPEC.md`                                                        | §11.2                     | 6 — runs last so any prior README/docs/spec rewrites land in the website snapshot |
 
 Run order matters:
 
 - `sync-oss-spec` runs **first** so every downstream skill sees the current spec — it may overwrite the local `OSS_SPEC.md` with the upstream copy, which downstream skills then read.
-- The per-artifact skills (`update-docs`, `update-readme`, `update-prompts`, and any `update-website` / `update-manpages` / other skills this project adds) run afterwards in dependency order: a skill that reads files another skill rewrites must run *after* that other skill.
+- The per-artifact skills (`update-docs`, `update-readme`, `update-manpages`, `update-prompts`, `update-website`, and any other skills this project adds) run afterwards in dependency order: a skill that reads files another skill rewrites must run *after* that other skill. `update-website` is intentionally last because it derives content from `README.md`, `docs/`, and `OSS_SPEC.md` — all of which earlier skills may have rewritten.
 
 ## Discovery process
 
