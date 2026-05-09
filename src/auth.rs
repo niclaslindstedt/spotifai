@@ -117,7 +117,10 @@ async fn run_async(provider: Provider, opts: AuthOptions) -> Result<()> {
 async fn run_spotify(opts: AuthOptions) -> Result<()> {
     let client_id = match opts.client_id {
         Some(s) => s,
-        None => prompt_for("Spotify client_id")?,
+        None => {
+            print_spotify_setup_hint();
+            prompt_for("Spotify client_id")?
+        }
     };
 
     // zad's spotify_scopes_for() expects zad-level scopes; we ask
@@ -190,6 +193,9 @@ async fn run_spotify(opts: AuthOptions) -> Result<()> {
 }
 
 async fn run_ymusic(opts: AuthOptions) -> Result<()> {
+    if opts.client_id.is_none() || opts.client_secret.is_none() {
+        print_ymusic_setup_hint();
+    }
     let client_id = match opts.client_id {
         Some(s) => s,
         None => prompt_for("YouTube Music (Google OAuth) client_id")?,
@@ -299,6 +305,42 @@ fn require_refresh(tokens: &TokenSet, label: &str) -> Result<String> {
              you may need to revoke the existing grant first."
         )
     })
+}
+
+/// First-time setup hint shown before prompting for a Spotify
+/// `client_id`. The exact URL and redirect host match what the
+/// loopback flow expects, so a user who follows these steps verbatim
+/// will pass the OAuth handshake without bouncing through the docs.
+fn print_spotify_setup_hint() {
+    output::info("");
+    output::info("First-time setup — you need a Spotify developer app to get a client_id:");
+    output::info("");
+    output::info("  1. Open https://developer.spotify.com/dashboard");
+    output::info("  2. Click \"Create app\" — name it anything (e.g. \"spotifai-local\")");
+    output::info("  3. Under \"Redirect URIs\", add: https://127.0.0.1");
+    output::info("     (any port works once the host is registered)");
+    output::info("  4. Save, then copy the \"Client ID\" from the app settings");
+    output::info("     (the Client Secret is not used — spotifai uses PKCE)");
+    output::info("");
+}
+
+/// First-time setup hint shown before prompting for YouTube Music
+/// (Google OAuth) credentials. Links go straight to the API library
+/// and credentials pages so the user does not have to navigate the
+/// Google Cloud console themselves.
+fn print_ymusic_setup_hint() {
+    output::info("");
+    output::info("First-time setup — you need Google OAuth credentials with the YouTube Data API:");
+    output::info("");
+    output::info("  1. Enable the API:");
+    output::info("     https://console.cloud.google.com/apis/library/youtube.googleapis.com");
+    output::info("  2. Create an OAuth client:");
+    output::info("     https://console.cloud.google.com/apis/credentials");
+    output::info("     → \"Create credentials\" → \"OAuth client ID\" → application type \"Desktop app\"");
+    output::info("  3. While the consent screen is in Testing, add yourself as a test user:");
+    output::info("     https://console.cloud.google.com/apis/credentials/consent");
+    output::info("  4. Copy the \"Client ID\" and \"Client secret\" from the new credential");
+    output::info("");
 }
 
 fn prompt_for(label: &str) -> Result<String> {
