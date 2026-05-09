@@ -1,26 +1,30 @@
 # spotifai auth
 
-> Register OAuth credentials by forwarding to `zad service create <provider>`.
+> Run an in-process OAuth loopback flow and write the resulting tokens into the OS keychain.
 
 ## Synopsis
 
 ```
-spotifai auth [--provider <slug>] [ARGS]...
+spotifai auth [--provider <slug>] [--client-id <id>] [--client-secret <secret>] [--no-browser]
 ```
 
 ## Description
 
-`spotifai auth` is a thin shim over `~/.spotifai/bin/zad service create <provider>`. The active provider is selected with `--provider` (default: `spotify`). For Spotify, zad runs an OAuth 2.0 PKCE public-client flow against `accounts.spotify.com`; for YouTube Music (zad ≥ 0.6.0), zad runs an OAuth 2.0 Desktop-app flow against Google. Either way the resulting credentials live in the OS keychain.
+`spotifai auth` runs an OAuth flow for the active provider in-process via `zad::oauth::run_loopback_flow` and persists the resulting credentials in the OS keychain under the `zad` service. After the OAuth flow, spotifai also probes the provider's "self" endpoint and persists the captured user/channel id at `~/.spotifai/<provider>.toml` so `playlists create` and other later calls can reuse it without re-fetching.
 
-Credentials are intentionally registered at zad's **global** scope (`~/.zad/services/<provider>/config.toml`) rather than the cwd-derived project scope, so the same credential applies to every directory `spotifai api …` is invoked from. Pass `--local` explicitly if you want the project-scoped behaviour anyway — the shim does not strip flags.
+For **Spotify**, zad runs an OAuth 2.0 PKCE *public-client* flow against `accounts.spotify.com`. There is no `client_secret`. The redirect lands on a `127.0.0.1:<random-port>` HTTPS loopback listener that spotifai opens for the duration of the flow; TLS is terminated in-process with a fresh self-signed certificate per session. After the flow, spotifai probes `GET /me` to capture the Spotify user id.
 
-Before exec'ing zad, spotifai performs the same install/version check as `spotifai install`:
+For **YouTube Music** (zad ≥ 0.6.0), zad runs an OAuth 2.0 *Desktop-app* flow against Google. The redirect lands on a `127.0.0.1:<random-port>` HTTP loopback listener (Google does not require HTTPS for desktop-app clients). After the flow, spotifai probes `GET /userinfo` and `GET /channels?mine=true` to capture the email, display name, and YouTube channel id.
 
-1. If `~/.spotifai/bin/zad` is missing, the release tagged in `.zadrc` is downloaded into place.
-2. If the binary exists, its `--version` is compared against the pinned tag (a leading `v` on either side is ignored). On a mismatch, the pinned release is downloaded and the wrong-version binary is replaced.
-3. Once the managed path holds the pinned version, zad is invoked there.
+Credentials are written to the OS keychain at the same accounts the zad library reads:
 
-Zad's stdout, stderr, and exit code are propagated verbatim — `spotifai auth` returns whatever zad returned.
+| Provider | Account | Stored value |
+|---|---|---|
+| Spotify        | `zad/spotify-client-id:global`     | OAuth client id |
+| Spotify        | `zad/spotify-refresh:global`       | Refresh token |
+| YouTube Music  | `zad/ymusic-client-id:global`      | OAuth client id |
+| YouTube Music  | `zad/ymusic-client-secret:global`  | OAuth client secret |
+| YouTube Music  | `zad/ymusic-refresh:global`        | Refresh token |
 
 ## Prerequisites
 
@@ -29,7 +33,7 @@ Zad's stdout, stderr, and exit code are propagated verbatim — `spotifai auth` 
 You still need a Spotify developer app on the dashboard:
 
 1. Open `https://developer.spotify.com/dashboard` and click **Create app**.
-2. Under **Redirect URIs**, add `http://127.0.0.1` and save. zad's loopback listener picks a random port; Spotify accepts any port on `127.0.0.1` once the host is registered.
+2. Under **Redirect URIs**, add `https://127.0.0.1` and save. spotifai's loopback listener picks a random port; Spotify accepts any port on `127.0.0.1` once the host is registered.
 3. Copy the **Client ID** (the Client Secret is unused — PKCE is a public-client flow).
 
 `spotifai auth` then takes the Client ID either interactively or via `--client-id`.
@@ -46,44 +50,30 @@ YouTube Music has no dedicated public API; zad talks to the YouTube Data API v3 
 
 ## Arguments
 
-| Argument | Type | Default | Description |
-|---|---|---|---|
-| `--provider <slug>` | enum | `spotify` | Provider to register credentials for. One of `spotify`, `ymusic`. |
-| `[ARGS]...` | trailing | — | Arguments forwarded as-is to `zad service create <provider>`. Hyphen-prefixed flags are accepted; use `--` to defensively split spotifai's args from zad's. |
+`spotifai auth` takes no positional arguments.
 
 ## Flags
 
-`spotifai auth` itself only owns `--provider`. Everything else is forwarded to zad. Common pass-through flags include:
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--provider <slug>` | enum | `spotify` | Provider to register credentials for. One of `spotify`, `ymusic`. |
+| `--client-id <id>` | string | — | OAuth client id. Skips the interactive stdin prompt. Also accepts `--client-id=<id>`. |
+| `--client-secret <secret>` | string | — | OAuth client secret. Required for `ymusic`; rejected for Spotify (PKCE has no secret). Also accepts `--client-secret=<secret>`. |
+| `--no-browser` | bool | false | Don't auto-open the consent screen — print the auth URL on stderr and wait for the redirect. Useful when the loopback listener is reachable from another machine over SSH port-forwarding. |
 
-| Flag | Description |
-|---|---|
-| `--client-id <id>` | OAuth client ID (skips the interactive prompt). |
-| `--client-secret <secret>` | OAuth client secret. Used by `ymusic`; ignored by Spotify (PKCE has no secret). |
-| `--refresh-token <token>` / `--refresh-token-env <VAR>` | Use an out-of-band refresh token instead of running the browser flow (useful for CI). |
-| `--no-browser` | Don't auto-open the consent screen; print the URL only. |
-| `--non-interactive` | Fail instead of prompting for any missing value. |
-| `--force` | Overwrite an existing global credential. |
-| `--local` | Store credentials under the project slug instead of globally — opt-in only. |
-| `--json` | Emit machine-readable JSON. |
-
-To see zad's full flag list:
-
-```sh
-spotifai auth --provider <slug> --help
-```
+Unknown flags are rejected with a usage error so the OAuth shape stays predictable.
 
 ## Environment variables
 
-`spotifai auth` does not read any environment variables of its own. The forwarded zad process inherits the current environment, so any variables zad consults (refresh-token env vars, `ZAD_HOME_OVERRIDE` for tests, etc.) are honoured.
+`spotifai auth` reads no environment variables of its own. The OS keychain backend (`secret-service` on Linux, Keychain on macOS, Credential Manager on Windows) is selected by the runtime in the usual platform-default way.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| 0   | zad completed the OAuth flow and stored the credential. |
-| 1   | Generic spotifai error (download/install failure, missing home directory, version mismatch after re-download). |
-| 2   | Usage error parsing `spotifai auth` itself. |
-| *N* | Any other code is propagated verbatim from `zad service create <provider>`. |
+| 0 | OAuth flow completed and credentials were written to the keychain. The post-flow `/me` (Spotify) or `userinfo` + `channels?mine=true` (YouTube Music) probe may still emit a warning, but does not fail the command. |
+| 1 | Generic error: OAuth flow failed (invalid client id/secret, redirect mismatch, user cancellation, network failure), refresh token missing from the response, keychain write failure, or runtime build failure. |
+| 2 | Usage error: unknown flag, missing flag value, or `--client-secret` passed for Spotify. |
 
 ## Examples
 
@@ -99,7 +89,7 @@ Skip the prompt by passing the Client ID up front:
 spotifai auth --client-id 1234567890abcdef1234567890abcdef
 ```
 
-Authenticate against YouTube Music:
+Authenticate against YouTube Music with credentials supplied non-interactively:
 
 ```sh
 spotifai auth --provider ymusic \
@@ -107,25 +97,14 @@ spotifai auth --provider ymusic \
     --client-secret <google-oauth-client-secret>
 ```
 
-Headless / CI with a pre-minted refresh token:
+Print the auth URL but don't open the browser (e.g. when running over SSH):
 
 ```sh
-export SPOTIFY_REFRESH_TOKEN=...
-spotifai auth \
-    --client-id 1234567890abcdef1234567890abcdef \
-    --refresh-token-env SPOTIFY_REFRESH_TOKEN \
-    --no-browser --non-interactive
-```
-
-Force-overwrite an existing global credential:
-
-```sh
-spotifai auth --force
+spotifai auth --no-browser
 ```
 
 ## See also
 
 - [`main.md`](main.md) — top-level `spotifai` reference
 - [`api.md`](api.md) — `spotifai api` reference (uses the credential registered here)
-- [`spotifai install`](main.md#spotifai-install) — the same install/version check, run on its own
-- zad's own [`man/spotify.md`](https://github.com/niclaslindstedt/zad/blob/main/man/spotify.md) and [`man/ymusic.md`](https://github.com/niclaslindstedt/zad/blob/main/man/ymusic.md) for the runtime verbs `spotifai api` forwards to
+- [`install.md`](install.md) — must run before `auth` to bootstrap the trust store

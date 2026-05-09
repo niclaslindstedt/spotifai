@@ -15,7 +15,7 @@ use crate::providers::Provider;
 use crate::session;
 
 /// Raw `prompts/playlist/<version>.md` file baked in at compile time.
-pub const PLAYLIST_PROMPT_RAW: &str = include_str!("../prompts/playlist/1_1_0.md");
+pub const PLAYLIST_PROMPT_RAW: &str = include_str!("../prompts/playlist/1_1_1.md");
 
 /// Run the `playlist` command. `initial_prompt` is the user's first
 /// brief (the trailing positional arg from the CLI). `None` drops
