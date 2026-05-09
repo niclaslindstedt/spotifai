@@ -117,10 +117,21 @@ async fn run_async(provider: Provider, opts: AuthOptions) -> Result<()> {
 async fn run_spotify(opts: AuthOptions) -> Result<()> {
     let client_id = match opts.client_id {
         Some(s) => s,
-        None => {
-            print_spotify_setup_hint();
-            prompt_for("Spotify client_id")?
-        }
+        None => match secrets::load(&secrets::account("spotify", "client-id", Scope::Global))
+            .map_err(|e| anyhow!("reading stored Spotify client-id from keychain failed: {e}"))?
+        {
+            Some(stored) => {
+                output::info(&format!(
+                    "Using stored Spotify client_id ({}…); pass --client-id to override.",
+                    stored.chars().take(8).collect::<String>()
+                ));
+                stored
+            }
+            None => {
+                print_spotify_setup_hint();
+                prompt_for("Spotify client_id")?
+            }
+        },
     };
 
     // zad's spotify_scopes_for() expects zad-level scopes; we ask
@@ -336,7 +347,9 @@ fn print_ymusic_setup_hint() {
     output::info("     https://console.cloud.google.com/apis/library/youtube.googleapis.com");
     output::info("  2. Create an OAuth client:");
     output::info("     https://console.cloud.google.com/apis/credentials");
-    output::info("     → \"Create credentials\" → \"OAuth client ID\" → application type \"Desktop app\"");
+    output::info(
+        "     → \"Create credentials\" → \"OAuth client ID\" → application type \"Desktop app\"",
+    );
     output::info("  3. While the consent screen is in Testing, add yourself as a test user:");
     output::info("     https://console.cloud.google.com/apis/credentials/consent");
     output::info("  4. Copy the \"Client ID\" and \"Client secret\" from the new credential");

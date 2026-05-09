@@ -17,9 +17,11 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
+use zad::oauth::KeychainRefreshStore;
 use zad::secrets::{self, Scope};
 use zad::service::spotify::{Spotify, SpotifyCredentials, SpotifyHttp};
 use zad::service::ymusic::{Ymusic, YmusicCredentials, YmusicHttp};
@@ -118,17 +120,18 @@ pub fn load_spotify_all() -> Result<Spotify> {
 }
 
 /// Build the underlying [`SpotifyHttp`] directly. Needed for verbs
-/// the typed facade does not yet expose in zad 0.6.4
+/// the typed facade does not yet expose in zad 0.6.5
 /// (`add_playlist_tracks`, `list_saved_albums`, `list_my_playlists`,
 /// `get_playlist_tracks`).
 pub fn load_spotify_http(scopes: BTreeSet<String>) -> Result<SpotifyHttp> {
     let creds = load_spotify_credentials()?;
     let config_path = self_id_path(Provider::Spotify)?;
-    Ok(SpotifyHttp::new(
+    Ok(SpotifyHttp::with_store(
         creds.client_id,
         creds.refresh_token,
         scopes,
         config_path,
+        creds.refresh_token_store,
     ))
 }
 
@@ -150,12 +153,13 @@ pub fn load_ymusic_all() -> Result<Ymusic> {
 pub fn load_ymusic_http(scopes: BTreeSet<String>) -> Result<YmusicHttp> {
     let creds = load_ymusic_credentials()?;
     let config_path = self_id_path(Provider::YouTubeMusic)?;
-    Ok(YmusicHttp::new(
+    Ok(YmusicHttp::with_store(
         creds.client_id,
         creds.client_secret,
         creds.refresh_token,
         scopes,
         config_path,
+        creds.refresh_token_store,
     ))
 }
 
@@ -174,9 +178,11 @@ fn load_spotify_credentials() -> Result<SpotifyCredentials> {
         load_keychain_or_hint("spotify", "client-id", "spotifai auth --provider spotify")?;
     let refresh_token =
         load_keychain_or_hint("spotify", "refresh", "spotifai auth --provider spotify")?;
+    let store = KeychainRefreshStore::new(secrets::account("spotify", "refresh", Scope::Global));
     Ok(SpotifyCredentials {
         client_id,
         refresh_token,
+        refresh_token_store: Some(Arc::new(store)),
     })
 }
 
@@ -187,10 +193,12 @@ fn load_ymusic_credentials() -> Result<YmusicCredentials> {
         load_keychain_or_hint("ymusic", "client-secret", "spotifai auth --provider ymusic")?;
     let refresh_token =
         load_keychain_or_hint("ymusic", "refresh", "spotifai auth --provider ymusic")?;
+    let store = KeychainRefreshStore::new(secrets::account("ymusic", "refresh", Scope::Global));
     Ok(YmusicCredentials {
         client_id,
         client_secret,
         refresh_token,
+        refresh_token_store: Some(Arc::new(store)),
     })
 }
 
