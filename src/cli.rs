@@ -24,7 +24,7 @@ use clap::{Parser, Subcommand};
 
 use crate::permissions::Profile;
 use crate::providers::Provider;
-use crate::{api, ask, auth, export, install, output, permissions, playlist};
+use crate::{api, ask, auth, export, import, install, output, permissions, playlist};
 
 #[derive(Debug, Parser)]
 #[command(name = "spotifai", version, about, long_about = None)]
@@ -132,6 +132,21 @@ pub enum Command {
     /// messages always go to stderr so the JSON on stdout stays
     /// pipe-clean.
     Export(ExportArgs),
+
+    /// Recreate playlists from a `spotifai export` envelope on the
+    /// active provider.
+    ///
+    /// Reads the envelope from stdin by default (so `spotifai export
+    /// | spotifai import --provider …` works), or from `--input
+    /// PATH`. When `source.service` in the envelope differs from the
+    /// target `--provider`, each track is resolved on the target via
+    /// `zad <provider> search` (ISRC first, then title + primary
+    /// artist). Unresolvable items are skipped and reported.
+    /// Playlists whose name already exists on the target are skipped
+    /// with a warning. Liked tracks, liked videos, and saved albums
+    /// in the envelope are intentionally ignored — only **playlists**
+    /// are recreated. Reuses the `playlist` permission profile.
+    Import(ImportArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -210,6 +225,24 @@ pub struct ExportArgs {
     pub pretty: bool,
 }
 
+#[derive(Debug, clap::Args)]
+pub struct ImportArgs {
+    /// Provider to import the playlists onto (default: `spotify`).
+    #[arg(long, value_enum, default_value_t = ProviderArg::default())]
+    pub provider: ProviderArg,
+
+    /// Read the envelope from this file instead of stdin.
+    #[arg(long, short = 'i')]
+    pub input: Option<std::path::PathBuf>,
+
+    /// Print what would be created without making any zad write
+    /// calls. Still spawns zad for the duplicate-name pre-fetch and
+    /// for cross-provider track resolution so the preview is
+    /// realistic.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 /// Entry point invoked by `main.rs`.
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -243,6 +276,11 @@ pub fn run() -> Result<()> {
             args.provider.into_provider(),
             args.output.as_deref(),
             args.pretty,
+        ),
+        Some(Command::Import(args)) => import::run(
+            args.provider.into_provider(),
+            args.input.as_deref(),
+            args.dry_run,
         ),
     }
 }

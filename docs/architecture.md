@@ -16,6 +16,7 @@ src/
   ask.rs         — `spotifai ask` (read-only zag session)
   playlist.rs    — `spotifai playlist` (one-shot playlist-builder zag session)
   export.rs      — `spotifai export` (deterministic JSON dump of the user's library)
+  import.rs      — `spotifai import` (deterministic playlist recreation from an export envelope)
   output.rs      — terminal and JSON rendering
 ```
 
