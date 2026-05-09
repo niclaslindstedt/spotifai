@@ -19,7 +19,6 @@ use anyhow::{Context, Result};
 use zag::builder::AgentBuilder;
 
 use crate::api::{SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV};
-use crate::install;
 use crate::output;
 use crate::permissions::{self, Permissions, Profile};
 use crate::providers::Provider;
@@ -38,10 +37,6 @@ pub fn run_agent(
     prompt_template: &str,
     initial_prompt: Option<&str>,
 ) -> Result<()> {
-    // Make sure the pinned zad binary is on disk before the agent
-    // tries to shell out through it.
-    install::ensure_installed(false)?;
-
     // Always make sure the policy file exists before we read it. The
     // first run creates a default; subsequent runs are a no-op so
     // user edits are preserved.

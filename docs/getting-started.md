@@ -21,18 +21,18 @@ spotifai exposes the agent through two commands, each with its own permissions p
 - **`spotifai ask`** is read-only. Use it for questions about your library.
 - **`spotifai playlist`** can additionally create a new playlist, add tracks/videos to it, and rename it. Use it when you want the agent to build something for you.
 
-Both commands run `spotifai api …` under the hood; that shim looks up the matching profile file and pins it on zad. Direct `spotifai api …` invocations from a shell are intentionally rejected — call zad directly via `~/.spotifai/bin/zad <provider> …` if you need that.
+Both commands run the agent through `spotifai api …`, which dispatches typed calls into the in-process zad library. Direct `spotifai api …` invocations from a shell are intentionally rejected — they require a parent surface (`spotifai ask` / `spotifai playlist`) to have selected a permissions profile.
 
 Both commands take `--provider <slug>` (default: `spotify`). Today the supported providers are:
 
 | Slug | Display name | Notes |
 |---|---|---|
 | `spotify` (default) | Spotify       | OAuth 2.0 PKCE, one developer app per user. |
-| `ymusic`            | YouTube Music | Google OAuth 2.0 Desktop-app credentials, talks to YouTube Data API v3. Requires zad ≥ 0.6.0. |
+| `ymusic`            | YouTube Music | Google OAuth 2.0 Desktop-app credentials, talks to YouTube Data API v3. |
 
 ## Set up the local toolchain
 
-`spotifai install` walks a four-step guided setup:
+`spotifai install` walks a three-step guided setup:
 
 ```sh
 spotifai install
@@ -40,10 +40,9 @@ spotifai install
 
 It will, in order:
 
-1. Download the pinned zad binary into `~/.spotifai/bin/zad`.
-2. Run `zad signing init` to mint a local Ed25519 signing key in your OS keychain and create the per-machine trust store at `~/.zad/signing/trusted.toml`.
-3. Scaffold the per-(provider, profile) permissions files at `~/.spotifai/permissions/<provider>/ask.toml` (read-only) and `~/.spotifai/permissions/<provider>/playlist.toml` (read + create/add/rename), for every supported provider. Existing files are left alone.
-4. Sign each profile file with `zad <provider> permissions sign --local` so zad's load-time trust check accepts them on the first `spotifai api …` call.
+1. Mint the per-machine Ed25519 signing key in your OS keychain (account `zad/signing:v1`) and create the trust store at `~/.zad/signing/trusted.toml`.
+2. Scaffold the per-(provider, profile) permissions files at `~/.spotifai/permissions/<provider>/ask.toml` (read-only) and `~/.spotifai/permissions/<provider>/playlist.toml` (read + create/add/rename), for every supported provider. Existing files are left alone.
+3. Sign each profile file with the keychain key and upsert the resulting signature into the trust store, so the in-process zad library accepts the file on every later call.
 
 Re-run `spotifai install` whenever you edit a profile file — the signing step runs unconditionally and resigns every file in place.
 
@@ -80,7 +79,7 @@ For YouTube Music:
 spotifai auth --provider ymusic
 ```
 
-After granting access, zad captures the redirect on `http://127.0.0.1:<random-port>`, exchanges the authorization code for a refresh token, and stores it in your OS keychain. Configuration lands at `~/.zad/services/<provider>/config.toml`. You only need to do this once per provider — refresh tokens are minted on every later `spotifai api …` call automatically.
+After granting access, spotifai captures the redirect on a `127.0.0.1:<random-port>` loopback listener (Spotify uses HTTPS with a per-session self-signed cert; YouTube Music uses HTTP), exchanges the authorization code for a refresh token, and stores it in your OS keychain under the `zad` service. Spotifai also probes `/me` (Spotify) or `/userinfo` + `/channels?mine=true` (YouTube Music) to capture the authenticated user/channel id and writes it to `~/.spotifai/<provider>.toml` for `playlists create` to consume later.
 
 If you'd rather skip the interactive prompt, pass the credentials up front:
 
@@ -89,15 +88,7 @@ spotifai auth --client-id <your-client-id>
 spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
 ```
 
-For headless / CI setups, supply a pre-minted refresh token:
-
-```sh
-export SPOTIFY_REFRESH_TOKEN=...
-spotifai auth \
-    --client-id <your-client-id> \
-    --refresh-token-env SPOTIFY_REFRESH_TOKEN \
-    --no-browser --non-interactive
-```
+`--no-browser` keeps the auth URL in stderr only (useful when the loopback listener is reachable from another machine over SSH port-forwarding).
 
 ## Your first query
 

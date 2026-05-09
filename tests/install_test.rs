@@ -1,154 +1,129 @@
-//! Pure-function tests for `spotifai::install` — no network, no filesystem.
+//! End-to-end tests for `spotifai::install` against the
+//! `ZAD_SECRETS_MEMORY` + `ZAD_HOME_OVERRIDE` test backends so the
+//! signing flow exercises real `zad::permissions` code without
+//! touching the OS keychain.
+//!
+//! These tests share process-wide env vars (`ZAD_HOME_OVERRIDE`) so
+//! they must run serialized; the [`SERIAL`] mutex below enforces
+//! that.
 
-use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use spotifai::install::{
-    PINNED_VERSION_RAW, ZAD_PERMISSIONS_PATH_ENV, asset_name_for, asset_url,
-    build_permissions_sign_command, build_signing_init_command, command_env, parse_fingerprint,
-    parse_version, pinned_version, version_matches,
-};
+use tempfile::TempDir;
+
+use spotifai::install::{bootstrap_signing_key, sign_permissions_file};
+use spotifai::permissions::{self, Profile};
 use spotifai::providers::Provider;
 
-#[test]
-fn pinned_version_matches_zadrc_trimmed() {
-    let raw = PINNED_VERSION_RAW;
-    assert_eq!(pinned_version(), raw.trim());
-    assert!(
-        pinned_version().starts_with('v'),
-        ".zadrc should pin a `vX.Y.Z` git tag, got `{}`",
-        pinned_version()
-    );
+fn serial_lock() -> MutexGuard<'static, ()> {
+    static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+    SERIAL
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
 }
 
-#[test]
-fn parse_version_picks_trailing_token() {
-    assert_eq!(parse_version("zad 0.6.0\n").as_deref(), Some("0.6.0"));
-    assert_eq!(parse_version("zad v0.6.0").as_deref(), Some("v0.6.0"));
-    assert_eq!(parse_version("0.6.0\nignored\n").as_deref(), Some("0.6.0"));
-    assert_eq!(parse_version(""), None);
-    assert_eq!(parse_version("\n"), None);
-}
-
-#[test]
-fn version_matches_strips_v_prefix_either_side() {
-    assert!(version_matches("0.6.0", "v0.6.0"));
-    assert!(version_matches("v0.6.0", "0.6.0"));
-    assert!(version_matches("v0.6.0", "v0.6.0"));
-    assert!(!version_matches("0.6.0", "v0.6.1"));
-    assert!(!version_matches("0.5.0", "v0.6.0"));
-}
-
-#[test]
-fn asset_name_covers_supported_targets() {
-    assert_eq!(
-        asset_name_for("linux", "x86_64").unwrap(),
-        "zad-x86_64-unknown-linux-gnu"
-    );
-    assert_eq!(
-        asset_name_for("linux", "aarch64").unwrap(),
-        "zad-aarch64-unknown-linux-gnu"
-    );
-    assert_eq!(
-        asset_name_for("macos", "x86_64").unwrap(),
-        "zad-x86_64-apple-darwin"
-    );
-    assert_eq!(
-        asset_name_for("macos", "aarch64").unwrap(),
-        "zad-aarch64-apple-darwin"
-    );
-    assert_eq!(
-        asset_name_for("windows", "x86_64").unwrap(),
-        "zad-x86_64-pc-windows-msvc.exe"
-    );
-}
-
-#[test]
-fn asset_name_rejects_unsupported_targets() {
-    assert!(asset_name_for("freebsd", "x86_64").is_err());
-    assert!(asset_name_for("linux", "riscv64").is_err());
-}
-
-#[test]
-fn parse_fingerprint_extracts_value_from_signing_init_json() {
-    let json = r#"{
-  "command": "signing.init",
-  "fingerprint": "8ce74dee",
-  "rotated": false
-}"#;
-    assert_eq!(parse_fingerprint(json).as_deref(), Some("8ce74dee"));
-}
-
-#[test]
-fn parse_fingerprint_returns_none_when_absent_or_malformed() {
-    assert!(parse_fingerprint("{}").is_none());
-    assert!(parse_fingerprint("not even json").is_none());
-    assert!(parse_fingerprint(r#"{"fingerprint": }"#).is_none());
-}
-
-#[test]
-fn signing_init_command_is_zad_signing_init_with_json_flag() {
-    let zad = PathBuf::from("/tmp/zad");
-    let cmd = build_signing_init_command(&zad);
-    let argv: Vec<_> = cmd
-        .get_args()
-        .map(|a| a.to_string_lossy().to_string())
-        .collect();
-    assert_eq!(argv, vec!["signing", "init", "--json"]);
-    // Program path is the zad binary we passed in.
-    assert_eq!(cmd.get_program(), zad.as_os_str());
-}
-
-#[test]
-fn permissions_sign_command_uses_provider_subcommand_and_pins_env_var() {
-    // Exercise both supported providers; each one signs through its
-    // own zad subcommand (`zad spotify permissions sign`,
-    // `zad ymusic permissions sign`, …) but pins the same
-    // ZAD_PERMISSIONS_PATH env var. The install flow signs each
-    // (provider, profile) file in turn.
-    for provider in [Provider::Spotify, Provider::YouTubeMusic] {
-        for filename in ["ask.toml", "playlist.toml"] {
-            let zad = PathBuf::from("/tmp/zad");
-            let policy =
-                PathBuf::from(format!("/tmp/permissions/{}/{filename}", provider.as_str()));
-            let cmd = build_permissions_sign_command(&zad, provider, &policy);
-
-            let argv: Vec<_> = cmd
-                .get_args()
-                .map(|a| a.to_string_lossy().to_string())
-                .collect();
-            assert_eq!(
-                argv,
-                vec![
-                    provider.zad_subcommand().to_string(),
-                    "permissions".to_string(),
-                    "sign".to_string(),
-                    "--local".to_string(),
-                ],
-                "the install flow signs each profile file via `zad {} permissions sign --local` \
-                 pinned via {ZAD_PERMISSIONS_PATH_ENV}",
-                provider.zad_subcommand(),
-            );
-
-            let env = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV)
-                .expect("ZAD_PERMISSIONS_PATH must be set so zad signs the per-profile file");
-            assert_eq!(env, policy.as_os_str());
-        }
+/// Configure the per-test environment so zad's signing layer
+/// stores keys/trust data inside `tmp` instead of the host
+/// keychain or `~/.zad/`. Also wipes the shared in-memory keychain
+/// so each test starts from a clean slate even when the parent
+/// process has already touched the static `secrets::memory_store`.
+fn isolate(tmp: &TempDir) {
+    // SAFETY: the SERIAL guard above ensures we are the only test
+    // touching env vars right now.
+    unsafe {
+        std::env::set_var("ZAD_SECRETS_MEMORY", "1");
+        std::env::set_var("ZAD_HOME_OVERRIDE", tmp.path());
     }
+    let _ = zad::secrets::delete(zad::permissions::signing::SIGNING_ACCOUNT);
 }
 
 #[test]
-fn asset_url_uses_releases_download_path() {
-    // Avoid coupling to the host arch by going through asset_name_for.
-    let asset = asset_name_for("linux", "x86_64").unwrap();
-    let url = asset_url("v0.6.0").unwrap();
-    // We can't assert full equality (depends on host), but it must point
-    // at the niclaslindstedt/zad release-download path with the tag we
-    // passed in.
+fn bootstrap_signing_key_returns_a_fingerprint() {
+    let _g = serial_lock();
+    let tmp = TempDir::new().unwrap();
+    isolate(&tmp);
+
+    let fp = bootstrap_signing_key().expect("bootstrap should succeed under the in-memory backend");
+    let fp = fp.expect("a fingerprint is produced");
     assert!(
-        url.starts_with("https://github.com/niclaslindstedt/zad/releases/download/v0.6.0/zad-"),
-        "url = {url}"
+        !fp.is_empty(),
+        "fingerprint should be non-empty (8-char hex slice), got `{fp}`"
     );
-    // Sanity: the asset name we computed for linux-x86_64 matches the
-    // shape spotifai uses too.
-    assert!(asset.starts_with("zad-"));
+    assert!(
+        fp.chars().all(|c| c.is_ascii_hexdigit()),
+        "fingerprint should be hex, got `{fp}`"
+    );
+}
+
+#[test]
+fn bootstrap_signing_key_is_idempotent() {
+    let _g = serial_lock();
+    let tmp = TempDir::new().unwrap();
+    isolate(&tmp);
+
+    let first = bootstrap_signing_key().unwrap().unwrap();
+    let second = bootstrap_signing_key().unwrap().unwrap();
+    assert_eq!(
+        first, second,
+        "subsequent runs should return the existing key, not a fresh one"
+    );
+}
+
+#[test]
+fn sign_permissions_file_writes_a_trust_store_entry() {
+    let _g = serial_lock();
+    let tmp = TempDir::new().unwrap();
+    isolate(&tmp);
+    bootstrap_signing_key().unwrap();
+
+    // Scaffold a default permission file under the tempdir so
+    // canonical_path_key works against a real path.
+    let policy_dir = tmp.path().join(".spotifai/permissions/spotify");
+    std::fs::create_dir_all(&policy_dir).unwrap();
+    let policy_path = policy_dir.join("ask.toml");
+    let policy = Profile::Ask.default_policy(Provider::Spotify);
+    let body = permissions::to_toml_string(&policy).unwrap();
+    std::fs::write(&policy_path, body).unwrap();
+
+    sign_permissions_file(Provider::Spotify, &policy_path)
+        .expect("signing should succeed after bootstrap");
+
+    // The signed trust store sits under <home>/.zad/signing/trusted.toml
+    // when ZAD_HOME_OVERRIDE points at the tempdir (ZAD_HOME_OVERRIDE
+    // is treated as the home dir, not as ~/.zad itself).
+    let trust_path = tmp.path().join(".zad/signing/trusted.toml");
+    assert!(
+        trust_path.exists(),
+        "trust store should be written at {}",
+        trust_path.display()
+    );
+    let trust_body = std::fs::read_to_string(&trust_path).unwrap();
+    assert!(
+        trust_body.contains("[[entry]]"),
+        "trust store should carry at least one signed entry: {trust_body}"
+    );
+    assert!(
+        trust_body.contains("[signature]"),
+        "trust store should be self-signed: {trust_body}"
+    );
+}
+
+#[test]
+fn sign_permissions_file_is_idempotent() {
+    let _g = serial_lock();
+    let tmp = TempDir::new().unwrap();
+    isolate(&tmp);
+    bootstrap_signing_key().unwrap();
+
+    let policy_dir = tmp.path().join(".spotifai/permissions/ymusic");
+    std::fs::create_dir_all(&policy_dir).unwrap();
+    let policy_path = policy_dir.join("playlist.toml");
+    let policy = Profile::Playlist.default_policy(Provider::YouTubeMusic);
+    let body = permissions::to_toml_string(&policy).unwrap();
+    std::fs::write(&policy_path, body).unwrap();
+
+    sign_permissions_file(Provider::YouTubeMusic, &policy_path).unwrap();
+    sign_permissions_file(Provider::YouTubeMusic, &policy_path)
+        .expect("re-signing the same file should overwrite the trust entry, not error");
 }

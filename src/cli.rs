@@ -1,18 +1,19 @@
 //! `spotifai` CLI surface (clap-derived).
 //!
-//! Subcommands break down into two categories:
+//! Subcommands:
 //!
-//! - `install` provisions the pinned zad binary into
-//!   `~/.spotifai/bin/zad` and scaffolds + signs one permissions
-//!   file per `(provider, profile)` pair under
-//!   `~/.spotifai/permissions/<provider>/`.
-//! - `auth`, `api`, `ask`, `playlist`, and `export` are forwarders.
-//!   They each call [`crate::install::ensure_installed`] first, then
-//!   exec the managed zad binary (or hand control to zag for `ask` /
-//!   `playlist`). `auth` registers credentials at zad's global scope
-//!   for the active provider; `api` runs `zad <provider> …` with
-//!   `ZAD_PERMISSIONS_PATH` pinned to the policy file backing the
-//!   active `(provider, profile)` pair.
+//! - `install` mints the per-machine signing key and scaffolds +
+//!   signs one permissions file per `(provider, profile)` pair
+//!   under `~/.spotifai/permissions/<provider>/`.
+//! - `auth` runs the in-process OAuth loopback flow for the active
+//!   provider and writes the resulting tokens into the OS keychain.
+//! - `api` parses the user-args grammar into typed zad library
+//!   calls and prints JSON to stdout.
+//! - `ask` and `playlist` open interactive zag sessions backed by
+//!   per-profile permissions files and a system prompt that injects
+//!   the active policy.
+//! - `export` and `import` round-trip the user's library through
+//!   the unified spotifai schema (see `docs/export_schema.md`).
 //!
 //! Every user-facing command takes `--provider <slug>` (default:
 //! `spotify`). Adding a new provider is a single change in
@@ -67,25 +68,22 @@ impl Default for ProviderArg {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Ensure the pinned zad binary is installed at
-    /// `~/.spotifai/bin/zad`, scaffold every permission profile for
-    /// every supported provider, and sign each one.
-    ///
-    /// Reads the target tag from `.zadrc` baked in at build time.
-    /// Idempotent: a no-op when the existing binary already reports
-    /// the pinned version. Pass `--force` to re-download anyway.
+    /// Mint the per-machine signing key, scaffold every permission
+    /// profile for every supported provider, and sign each one.
+    /// Idempotent — safe to re-run.
     Install(InstallArgs),
 
-    /// Forward to `zad <provider> …` after verifying the pinned zad
-    /// binary is installed.
+    /// Run a typed call against the active provider through the
+    /// in-process zad library and print the JSON response.
     ///
-    /// Everything after `api` is passed through verbatim, so
-    /// `spotifai api playlists list` becomes
-    /// `~/.spotifai/bin/zad <provider> playlists list`. Requires a
-    /// parent spotifai command (`ask` or `playlist`) to have
-    /// selected a profile via `SPOTIFAI_PROFILE` — direct shell
-    /// invocations exit with a usage error. The active provider is
-    /// read from `SPOTIFAI_PROVIDER` (default: spotify).
+    /// Grammar: `search "query"`, `playlists list`, `playlists show
+    /// <id>`, `playlists create --name|--title <name>`, `playlists
+    /// add <playlist-id> <id…>`, `library tracks list`,
+    /// `library albums list` (Spotify), `library list` (YouTube
+    /// Music). Requires a parent command (`ask` or `playlist`) to
+    /// have selected a profile via `SPOTIFAI_PROFILE` — direct
+    /// shell invocations exit with a usage error. The active
+    /// provider is read from `SPOTIFAI_PROVIDER` (default: spotify).
     Api(ApiArgs),
 
     /// Start an interactive zag session pre-loaded with a system
@@ -108,17 +106,17 @@ pub enum Command {
     /// agent's first turn.
     Playlist(PlaylistArgs),
 
-    /// Register OAuth credentials by forwarding to `zad service
-    /// create <provider>` (global scope, no `--local`).
+    /// Run an in-process OAuth loopback flow for the active
+    /// provider and write the resulting tokens into the OS
+    /// keychain.
     ///
-    /// Spotify only issues one developer app per user, so the
-    /// resulting `client_id` + refresh token are stored at
-    /// `~/.zad/services/spotify/...` and apply to every directory
-    /// `spotifai api …` is invoked from. YouTube Music uses Google
-    /// OAuth 2.0 "Desktop app" credentials at
-    /// `~/.zad/services/ymusic/...`. Anything after `auth` is
-    /// passed through verbatim to zad — `--client-id`,
-    /// `--client-secret`, `--no-browser`, `--non-interactive`, etc.
+    /// Spotify uses PKCE (no `client_secret`); YouTube Music uses a
+    /// Google OAuth 2.0 "Desktop app" client (with a
+    /// `client_secret`). Both flows open the browser at the
+    /// authorize URL and capture the redirect on a `127.0.0.1`
+    /// loopback listener. Pass `--client-id` / `--client-secret`
+    /// to skip the interactive prompt; `--no-browser` keeps the URL
+    /// in stderr only.
     Auth(AuthArgs),
 
     /// Dump the user's library on the active provider — liked
@@ -140,30 +138,27 @@ pub enum Command {
     /// | spotifai import --provider …` works), or from `--input
     /// PATH`. When `source.service` in the envelope differs from the
     /// target `--provider`, each track is resolved on the target via
-    /// `zad <provider> search` (ISRC first, then title + primary
-    /// artist). Unresolvable items are skipped and reported.
-    /// Playlists whose name already exists on the target are skipped
-    /// with a warning. Liked tracks, liked videos, and saved albums
-    /// in the envelope are intentionally ignored — only **playlists**
-    /// are recreated. Reuses the `playlist` permission profile.
+    /// the typed `search` request on the zad library (ISRC first on
+    /// Spotify, then title + primary artist). Unresolvable items
+    /// are skipped and reported. Playlists whose name already
+    /// exists on the target are skipped with a warning. Liked
+    /// tracks, liked videos, and saved albums in the envelope are
+    /// intentionally ignored — only **playlists** are recreated.
+    /// Reuses the `playlist` permission profile.
     Import(ImportArgs),
 }
 
 #[derive(Debug, clap::Args)]
-pub struct InstallArgs {
-    /// Re-download even if the existing binary already matches the
-    /// pinned version.
-    #[arg(long)]
-    pub force: bool,
-}
+pub struct InstallArgs {}
 
 #[derive(Debug, clap::Args)]
 pub struct ApiArgs {
-    /// Arguments forwarded as-is to `zad <provider>`. The active
-    /// provider is read from `SPOTIFAI_PROVIDER` (set by the parent
-    /// `ask`/`playlist`/`export` command) — `spotifai api` does not
-    /// take its own `--provider` flag because trailing-var-arg
-    /// parsing would swallow it before clap saw it.
+    /// Verb plus arguments parsed by [`crate::api::parse_verb`].
+    /// The active provider is read from `SPOTIFAI_PROVIDER` (set by
+    /// the parent `ask`/`playlist`/`export` command) — `spotifai
+    /// api` does not take its own `--provider` flag because
+    /// trailing-var-arg parsing would swallow it before clap saw
+    /// it.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
 }
@@ -202,7 +197,8 @@ pub struct AuthArgs {
     #[arg(long, value_enum, default_value_t = ProviderArg::default())]
     pub provider: ProviderArg,
 
-    /// Arguments forwarded as-is to `zad service create <provider>`.
+    /// Optional flags: `--client-id`, `--client-secret` (YouTube
+    /// Music only), `--no-browser`. Anything else errors out.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
 }
@@ -249,11 +245,11 @@ pub fn run() -> Result<()> {
     match cli.command {
         None => {
             println!("spotifai {}", crate::version());
-            println!("zad pinned to {}", install::pinned_version());
+            println!("zad library {}", zad::version());
             println!("\nRun `spotifai --help` for available commands.");
             Ok(())
         }
-        Some(Command::Install(args)) => guided_install(args.force),
+        Some(Command::Install(_)) => guided_install(),
         Some(Command::Api(args)) => api::forward(&args.args),
         Some(Command::Ask(args)) => {
             let query = if args.query.is_empty() {
@@ -285,23 +281,20 @@ pub fn run() -> Result<()> {
     }
 }
 
-/// Walk the user through the four steps that make `spotifai api …`
-/// usable: install zad, mint the signing key, scaffold every
+/// Walk the user through the three steps that make spotifai's
+/// agent surface usable: mint the signing key, scaffold every
 /// permission profile (per provider), sign each one. Each step
 /// prints a header so a first-time user can see what is happening.
-fn guided_install(force: bool) -> Result<()> {
+fn guided_install() -> Result<()> {
     output::header("spotifai setup");
 
-    output::header("Step 1/4 · Installing zad binary");
-    let zad = install::ensure_installed(force)?;
-
-    output::header("Step 2/4 · Bootstrapping signing key");
-    match install::bootstrap_signing_key(&zad)? {
+    output::header("Step 1/3 · Bootstrapping signing key");
+    match install::bootstrap_signing_key()? {
         Some(fp) => output::status(&format!("signing key ready (fingerprint: {fp})")),
         None => output::status("signing key ready"),
     }
 
-    output::header("Step 3/4 · Writing default permission profiles");
+    output::header("Step 2/3 · Writing default permission profiles");
     let mut paths: Vec<(Provider, Profile, std::path::PathBuf)> =
         Vec::with_capacity(Provider::ALL.len() * Profile::ALL.len());
     for &provider in Provider::ALL {
@@ -326,9 +319,9 @@ fn guided_install(force: bool) -> Result<()> {
         }
     }
 
-    output::header("Step 4/4 · Signing permission profiles");
+    output::header("Step 3/3 · Signing permission profiles");
     for (provider, profile, path) in &paths {
-        install::sign_permissions_file(&zad, *provider, path)?;
+        install::sign_permissions_file(*provider, path)?;
         output::status(&format!(
             "signed {} × {} profile at {}",
             provider.as_str(),

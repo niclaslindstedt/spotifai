@@ -1,58 +1,44 @@
 //! `spotifai import` — recreate playlists on the active provider
-//! from a `spotifai export` envelope.
+//! from a unified spotifai schema envelope.
 //!
-//! Inverse of [`crate::export`]. Reads the JSON envelope from stdin
-//! or `--input PATH`, then for each playlist calls `zad <provider>
-//! playlists create` followed by chunked `zad <provider> playlists
-//! add` to recreate the ordered track/video list. Same-provider
-//! re-imports use the embedded source IDs verbatim; cross-provider
-//! migrations resolve every track/video on the target via `zad
-//! <provider> search` (ISRC first, then title + primary-artist
-//! fallback). Unresolvable items are skipped, accumulated in the
-//! final report, and never abort the import.
+//! Reads the JSON envelope from stdin or `--input PATH`, then walks
+//! every [`crate::export_schema::Playlist`]:
 //!
-//! Scope is intentionally **playlists only**. Liked tracks, liked
-//! videos, and saved albums in the envelope are ignored — those
-//! would force widening [`crate::permissions::Profile::Playlist`]
-//! to allow `library tracks save` / `library albums save` /
-//! `library like`, which is out of scope for the migration use case
-//! (and would force a new install/sign step on every machine).
+//! - Resolve each [`crate::export_schema::Track`] to a target-provider
+//!   item id. On a same-provider re-import (`source.service` matches
+//!   `--provider`) we use the track's `source_ids[<service>]` verbatim.
+//!   On a cross-provider migration we run `Spotify::search` /
+//!   `Ymusic::search` against an ISRC-first query, with a `<title>
+//!   <primary artist>` fallback.
+//! - Skip playlists whose name already exists on the target.
+//! - Create the playlist on the target via the typed
+//!   `create_playlist` request, then add each resolved track.
+//!
+//! Scope is intentionally **playlists only**. Liked items and saved
+//! albums in the envelope are ignored — those would force widening
+//! [`crate::permissions::Profile::Playlist`] to allow library writes,
+//! which is out of scope for the migration use case.
 //!
 //! Existing-name collision policy: skip and warn. The pre-fetch of
 //! existing playlists runs even under `--dry-run` so the preview is
 //! realistic; it is read-only.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context, Result, anyhow, bail};
-use serde_json::Value;
 
-use crate::api::{SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, ZAD_PERMISSIONS_PATH_ENV};
-use crate::export::{PAGE_SIZE, build_zad_args, extract_items};
-use crate::install;
+use crate::export_schema::{Envelope, Playlist, SCHEMA_VERSION, Track};
 use crate::output;
 use crate::permissions::{self, Profile};
 use crate::providers::Provider;
-
-/// Schema versions this importer accepts. Add new entries when the
-/// envelope shape grows additively; bump and gate on a fresh entry
-/// when the shape changes incompatibly.
-pub const SUPPORTED_SCHEMA_VERSIONS: &[&str] = &["1"];
+use crate::zad_client;
 
 /// Run the import.
 pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Result<()> {
-    let zad = install::ensure_installed(false)?;
     let (policy_path, _wrote) = permissions::ensure_default_for(provider, Profile::Playlist)?;
-
-    // SAFETY: spotifai is single-threaded at this point — see the
-    // matching block in src/export.rs.
-    unsafe {
-        std::env::set_var(SPOTIFAI_PROVIDER_ENV, provider.as_str());
-        std::env::set_var(SPOTIFAI_PROFILE_ENV, Profile::Playlist.as_str());
-    }
 
     output::header(&format!("spotifai import ({})", provider.display_name()));
     output::info(&format!("permissions: {}", policy_path.display()));
@@ -61,36 +47,72 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Resu
     }
 
     let raw = read_input(input_path)?;
-    let envelope = parse_envelope(&raw)?;
+    let envelope: Envelope = parse_envelope(&raw)?;
     validate_schema_version(&envelope)?;
-    let source = source_service(&envelope)?.to_string();
-    let cross_provider = source != provider.zad_service_slug();
+
+    let cross_provider = envelope.source.service != provider.as_str();
     if cross_provider {
         output::info(&format!(
             "cross-provider migration: source `{}` → target `{}`; resolving tracks via search",
-            source,
-            provider.zad_service_slug()
+            envelope.source.service,
+            provider.as_str()
         ));
     }
 
-    let existing = fetch_existing_playlist_names(&zad, &policy_path, provider)?;
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("building tokio runtime")?;
+
+    rt.block_on(async {
+        match provider {
+            Provider::Spotify => run_spotify(envelope, dry_run, cross_provider).await,
+            Provider::YouTubeMusic => run_ymusic(envelope, dry_run, cross_provider).await,
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Spotify importer
+// ---------------------------------------------------------------------------
+
+async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) -> Result<()> {
+    use zad::service::spotify::{CreatePlaylistRequest, PlaylistsRequest, SearchRequest};
+
+    let identity = zad_client::read_self_identity(Provider::Spotify)?;
+    let user_id = identity.user_id.clone().ok_or_else(|| {
+        anyhow!(
+            "Spotify user id missing; re-run `spotifai auth --provider spotify` so the \
+             `/me` probe captures it"
+        )
+    })?;
+    let client = zad_client::load_spotify_all()?;
+    let http = zad_client::load_spotify_http(spotify_import_scopes())?;
+
+    output::info("fetching existing playlists on target…");
+    let existing = client
+        .playlists(PlaylistsRequest::new(50).map_err(map_zad)?)
+        .await
+        .map_err(map_zad)?;
+    let existing_names: BTreeSet<String> = existing
+        .iter()
+        .map(|p| p.name.trim().to_ascii_lowercase())
+        .collect();
     output::info(&format!("{} existing playlists on target", existing.len()));
 
     let mut report = ImportReport::default();
-    let playlists = playlists_from_envelope(&envelope)?;
-    output::info(&format!("{} playlists in envelope", playlists.len()));
-
-    for playlist in playlists {
-        let name = match playlist_display_name(playlist) {
-            Some(n) => n,
-            None => {
-                output::warn("skipping playlist: no `name`/`title` field");
-                report.playlists_failed += 1;
-                continue;
-            }
-        };
-
-        if is_duplicate_name(&name, &existing) {
+    output::info(&format!(
+        "{} playlists in envelope",
+        envelope.playlists.len()
+    ));
+    for playlist in envelope.playlists {
+        let name = playlist.name.trim().to_string();
+        if name.is_empty() {
+            output::warn("skipping playlist with empty name");
+            report.playlists_failed += 1;
+            continue;
+        }
+        if existing_names.contains(&name.to_ascii_lowercase()) {
             output::warn(&format!(
                 "playlist `{name}` already exists on target — skipping"
             ));
@@ -98,23 +120,29 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Resu
             continue;
         }
 
-        let tracks = tracks_in_playlist(playlist, &source);
-        let mut resolved_ids: Vec<String> = Vec::with_capacity(tracks.len());
-        for track in tracks {
-            let id_opt = if cross_provider {
-                resolve_track(track, provider, |q, ty| {
-                    run_zad_search(&zad, &policy_path, provider, q, ty)
-                })?
+        // Resolve each track to a Spotify URI.
+        let mut uris: Vec<String> = Vec::with_capacity(playlist.tracks.len());
+        for track in &playlist.tracks {
+            let resolved = if cross_provider {
+                resolve_spotify_via_search(track, |q, types| async {
+                    let req = SearchRequest::new(q, types, 1).map_err(map_zad)?;
+                    let res = client.search(req).await.map_err(map_zad)?;
+                    Ok(res
+                        .tracks
+                        .as_ref()
+                        .and_then(|p| p.items.first())
+                        .map(|t| t.id.clone()))
+                })
+                .await?
             } else {
-                target_track_id(track, provider)
+                track.source_id_for("spotify").map(str::to_string)
             };
-            match id_opt {
-                Some(id) => resolved_ids.push(id),
+            match resolved {
+                Some(id) => uris.push(spotify_uri_for(&id)),
                 None => {
                     output::warn(&format!(
-                        "could not resolve `{}` on {}",
-                        track_label(track),
-                        provider.display_name()
+                        "could not resolve `{}` on Spotify",
+                        track_label(track)
                     ));
                     report.tracks_unresolved += 1;
                 }
@@ -122,52 +150,40 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Resu
         }
 
         if dry_run {
-            output::info(&format!(
-                "would create `{name}` with {} tracks",
-                resolved_ids.len()
-            ));
+            output::info(&format!("would create `{name}` with {} tracks", uris.len()));
             report.playlists_created += 1;
-            report.tracks_added += resolved_ids.len();
+            report.tracks_added += uris.len();
             continue;
         }
 
-        let create_response = match run_zad_json(
-            &zad,
-            &policy_path,
-            provider,
-            &str_refs(&build_create_args(provider, &name)),
-        ) {
-            Ok(v) => v,
+        let req = CreatePlaylistRequest::new(
+            user_id.clone(),
+            name.clone(),
+            playlist.description.clone(),
+            playlist.public.unwrap_or(false),
+        )
+        .map_err(map_zad)?;
+        let created = match client.create_playlist(req).await {
+            Ok(p) => p,
             Err(e) => {
-                output::warn(&format!("`playlists create` failed for `{name}`: {e:#}"));
+                output::warn(&format!("`create_playlist` failed for `{name}`: {e}"));
                 report.playlists_failed += 1;
                 continue;
             }
         };
 
-        let pid = match extract_created_playlist_id(&create_response) {
-            Some(p) => p,
-            None => {
-                output::warn(&format!(
-                    "zad did not return a playlist id for `{name}` — skipping add"
-                ));
-                report.playlists_failed += 1;
-                continue;
-            }
-        };
-
+        // Spotify caps `add_playlist_tracks` at 100 URIs per call.
         let mut added = 0usize;
-        for chunk in resolved_ids.chunks(PAGE_SIZE) {
-            let args = build_add_args(provider, &pid, chunk);
-            match run_zad_json(&zad, &policy_path, provider, &str_refs(&args)) {
-                Ok(_) => added += chunk.len(),
+        for chunk in uris.chunks(100) {
+            let chunk_vec: Vec<String> = chunk.to_vec();
+            match http.add_playlist_tracks(&created.id, &chunk_vec).await {
+                Ok(()) => added += chunk.len(),
                 Err(e) => {
-                    output::warn(&format!("`playlists add` failed for `{name}`: {e:#}"));
+                    output::warn(&format!("`add_playlist_tracks` failed for `{name}`: {e}"));
                     report.tracks_failed += chunk.len();
                 }
             }
         }
-
         report.playlists_created += 1;
         report.tracks_added += added;
         output::status(&format!("created `{name}` with {added} tracks"));
@@ -176,6 +192,182 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Resu
     output::status(&import_summary_line(&report));
     Ok(())
 }
+
+fn spotify_import_scopes() -> BTreeSet<String> {
+    let mut s = BTreeSet::new();
+    s.insert("search".into());
+    s.insert("playlists.write".into());
+    s
+}
+
+fn spotify_uri_for(id: &str) -> String {
+    if id.starts_with("spotify:") {
+        id.to_string()
+    } else {
+        format!("spotify:track:{id}")
+    }
+}
+
+async fn resolve_spotify_via_search<F, Fut>(track: &Track, mut search: F) -> Result<Option<String>>
+where
+    F: FnMut(String, Vec<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<String>>>,
+{
+    if let Some(isrc) = track.isrc.as_deref()
+        && !isrc.trim().is_empty()
+    {
+        let q = format!("isrc:{}", isrc.trim());
+        if let Some(id) = search(q, vec!["track".into()]).await? {
+            return Ok(Some(id));
+        }
+    }
+    if let Some(q) = track.search_query() {
+        if let Some(id) = search(q, vec!["track".into()]).await? {
+            return Ok(Some(id));
+        }
+    }
+    Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// YouTube Music importer
+// ---------------------------------------------------------------------------
+
+async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> Result<()> {
+    use zad::service::ymusic::client::Privacy;
+    use zad::service::ymusic::{
+        AddPlaylistItemRequest, CreatePlaylistRequest, PlaylistsRequest, SearchRequest,
+    };
+
+    let client = zad_client::load_ymusic_all()?;
+
+    output::info("fetching existing playlists on target…");
+    let existing = client
+        .playlists(PlaylistsRequest::new(50).map_err(map_zad)?)
+        .await
+        .map_err(map_zad)?;
+    let existing_names: BTreeSet<String> = existing
+        .iter()
+        .filter_map(|p| {
+            p.snippet
+                .as_ref()
+                .map(|s| s.title.trim().to_ascii_lowercase())
+        })
+        .collect();
+    output::info(&format!("{} existing playlists on target", existing.len()));
+
+    let mut report = ImportReport::default();
+    output::info(&format!(
+        "{} playlists in envelope",
+        envelope.playlists.len()
+    ));
+    for playlist in envelope.playlists {
+        let name = playlist.name.trim().to_string();
+        if name.is_empty() {
+            output::warn("skipping playlist with empty name");
+            report.playlists_failed += 1;
+            continue;
+        }
+        if existing_names.contains(&name.to_ascii_lowercase()) {
+            output::warn(&format!(
+                "playlist `{name}` already exists on target — skipping"
+            ));
+            report.playlists_skipped_duplicate += 1;
+            continue;
+        }
+
+        let mut video_ids: Vec<String> = Vec::with_capacity(playlist.tracks.len());
+        for track in &playlist.tracks {
+            let resolved = if cross_provider {
+                resolve_ymusic_via_search(track, |q| async {
+                    let req = SearchRequest::new(q, vec!["video".into()], 1).map_err(map_zad)?;
+                    let res = client.search(req).await.map_err(map_zad)?;
+                    Ok(res
+                        .into_iter()
+                        .next()
+                        .and_then(|item| item.id.and_then(|id| id.video_id)))
+                })
+                .await?
+            } else {
+                track.source_id_for("ymusic").map(str::to_string)
+            };
+            match resolved {
+                Some(id) => video_ids.push(id),
+                None => {
+                    output::warn(&format!(
+                        "could not resolve `{}` on YouTube Music",
+                        track_label(track)
+                    ));
+                    report.tracks_unresolved += 1;
+                }
+            }
+        }
+
+        if dry_run {
+            output::info(&format!(
+                "would create `{name}` with {} videos",
+                video_ids.len()
+            ));
+            report.playlists_created += 1;
+            report.tracks_added += video_ids.len();
+            continue;
+        }
+
+        let privacy = if playlist.public.unwrap_or(false) {
+            Privacy::Public
+        } else {
+            Privacy::Private
+        };
+        let req = CreatePlaylistRequest::new(name.clone(), playlist.description.clone(), privacy)
+            .map_err(map_zad)?;
+        let created = match client.create_playlist(req).await {
+            Ok(p) => p,
+            Err(e) => {
+                output::warn(&format!("`create_playlist` failed for `{name}`: {e}"));
+                report.playlists_failed += 1;
+                continue;
+            }
+        };
+
+        let mut added = 0usize;
+        for video_id in &video_ids {
+            let req = AddPlaylistItemRequest::new(created.id.clone(), video_id.clone())
+                .map_err(map_zad)?;
+            match client.add_playlist_item(req).await {
+                Ok(_) => added += 1,
+                Err(e) => {
+                    output::warn(&format!("`add_playlist_item` failed for `{name}`: {e}"));
+                    report.tracks_failed += 1;
+                }
+            }
+        }
+        report.playlists_created += 1;
+        report.tracks_added += added;
+        output::status(&format!("created `{name}` with {added} videos"));
+    }
+
+    output::status(&import_summary_line(&report));
+    Ok(())
+}
+
+async fn resolve_ymusic_via_search<F, Fut>(track: &Track, mut search: F) -> Result<Option<String>>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<String>>>,
+{
+    // YouTube has no ISRC search support — fall straight to title +
+    // artist text search.
+    if let Some(q) = track.search_query() {
+        if let Some(id) = search(q).await? {
+            return Ok(Some(id));
+        }
+    }
+    Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 /// Read the envelope text from `--input PATH` or stdin.
 fn read_input(path: Option<&Path>) -> Result<String> {
@@ -191,182 +383,34 @@ fn read_input(path: Option<&Path>) -> Result<String> {
     }
 }
 
-/// Parse the envelope JSON text. Fatal on malformed JSON.
-pub fn parse_envelope(raw: &str) -> Result<Value> {
+/// Parse the envelope JSON text. Fatal on malformed JSON or
+/// schema-violating shape.
+pub fn parse_envelope(raw: &str) -> Result<Envelope> {
     serde_json::from_str(raw).context("parsing envelope JSON")
 }
 
-/// Verify `schema_version` is one we know how to consume.
-pub fn validate_schema_version(envelope: &Value) -> Result<()> {
-    let v = envelope
-        .get("schema_version")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("envelope is missing `schema_version`"))?;
-    if SUPPORTED_SCHEMA_VERSIONS.contains(&v) {
+/// Verify the envelope's `schema_version` matches what this build
+/// can consume.
+pub fn validate_schema_version(envelope: &Envelope) -> Result<()> {
+    if envelope.schema_version == SCHEMA_VERSION {
         Ok(())
     } else {
         bail!(
-            "unsupported envelope `schema_version`: `{v}`; this build supports {SUPPORTED_SCHEMA_VERSIONS:?}"
+            "unsupported envelope `schema_version`: `{}`; this build expects `{SCHEMA_VERSION}`",
+            envelope.schema_version
         )
     }
 }
 
-/// Read `source.service` out of the envelope. Fatal on missing or
-/// non-string.
-pub fn source_service(envelope: &Value) -> Result<&str> {
-    envelope
-        .get("source")
-        .and_then(|s| s.get("service"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("envelope is missing `source.service`"))
-}
-
-/// Pull the `playlists` array out of the envelope.
-pub fn playlists_from_envelope(envelope: &Value) -> Result<Vec<&Value>> {
-    let arr = envelope
-        .get("playlists")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| anyhow!("envelope `playlists` is missing or not an array"))?;
-    Ok(arr.iter().collect())
-}
-
-/// Extract the per-playlist track/video list. Spotify exports nest
-/// the list under `tracks`; YouTube Music exports use `videos`. The
-/// `source` discriminator picks the right key, with the inactive key
-/// used as a fallback in case a future export tightens the
-/// convention.
-pub fn tracks_in_playlist<'a>(playlist: &'a Value, source: &str) -> Vec<&'a Value> {
-    let primary = if source == "spotify" {
-        "tracks"
-    } else {
-        "videos"
-    };
-    let secondary = if source == "spotify" {
-        "videos"
-    } else {
-        "tracks"
-    };
-    if let Some(arr) = playlist.get(primary).and_then(|v| v.as_array()) {
-        return arr.iter().collect();
-    }
-    if let Some(arr) = playlist.get(secondary).and_then(|v| v.as_array()) {
-        return arr.iter().collect();
-    }
-    Vec::new()
-}
-
-/// Pick the playlist's display name from the most likely keys.
-pub fn playlist_display_name(playlist: &Value) -> Option<String> {
-    for key in ["name", "title"] {
-        if let Some(s) = playlist.get(key).and_then(|v| v.as_str())
-            && !s.trim().is_empty()
-        {
-            return Some(s.to_string());
-        }
-    }
-    None
-}
-
-/// Build a `q=isrc:XXXX` search query when the source track carries
-/// an `isrc` field. Spotify Web Search natively understands the
-/// qualifier; YouTube Music will return zero hits and the caller
-/// falls through to [`search_query_text`].
-pub fn search_query_isrc(track: &Value) -> Option<String> {
-    let isrc = track
-        .get("isrc")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())?;
-    Some(format!("isrc:{isrc}"))
-}
-
-/// Build a `q=<title> <primary artist>` text query. Permissive about
-/// shape: `track.artists[0].name`, `track.artists[0]` as a string, or
-/// the singular `track.artist` field — different zad providers ship
-/// different shapes and the export embeds them verbatim.
-pub fn search_query_text(track: &Value) -> Option<String> {
-    let name = first_str(track, &["name", "title"])?;
-    let artist = primary_artist(track)?;
-    Some(format!("{name} {artist}"))
-}
-
-/// Resolve a target-provider track ID for an already-fetched search
-/// hit (or, on the same-provider path, the embedded source track).
-/// Each provider has a different canonical ID shape.
-pub fn target_track_id(hit: &Value, target: Provider) -> Option<String> {
-    let keys: &[&str] = match target {
-        Provider::Spotify => &["spotify_id", "uri", "id"],
-        Provider::YouTubeMusic => &["video_id", "videoId", "id"],
-    };
-    first_str(hit, keys).map(str::to_string)
-}
-
-/// Resolve a source track to a target-provider ID by calling the
-/// supplied `search` callback. ISRC first, then title + primary
-/// artist; returns `Ok(None)` when both queries either yield no hits
-/// or yield hits without a usable ID.
-pub fn resolve_track<F>(track: &Value, target: Provider, mut search: F) -> Result<Option<String>>
-where
-    F: FnMut(&str, Option<&str>) -> Result<Vec<Value>>,
-{
-    if let Some(q) = search_query_isrc(track) {
-        let hits = search(&q, Some("track"))?;
-        if let Some(id) = hits.first().and_then(|h| target_track_id(h, target)) {
-            return Ok(Some(id));
-        }
-    }
-    if let Some(q) = search_query_text(track) {
-        let hits = search(&q, Some("track"))?;
-        if let Some(id) = hits.first().and_then(|h| target_track_id(h, target)) {
-            return Ok(Some(id));
-        }
-    }
-    Ok(None)
-}
-
-/// Case-insensitive, trimmed comparison. "Focus" and "focus " are
-/// the same playlist for the purposes of duplicate-skip.
-pub fn is_duplicate_name(name: &str, existing: &[String]) -> bool {
-    let needle = name.trim().to_ascii_lowercase();
-    existing
-        .iter()
-        .any(|e| e.trim().to_ascii_lowercase() == needle)
-}
-
-/// `playlists create <provider-flag> <name>`. Provider-agnostic via
-/// [`Provider::playlist_name_flag`].
-pub fn build_create_args(provider: Provider, name: &str) -> Vec<String> {
-    vec![
-        "playlists".into(),
-        "create".into(),
-        provider.playlist_name_flag().into(),
-        name.into(),
-    ]
-}
-
-/// `playlists add <playlist-id> <id1> <id2> ...`.
-pub fn build_add_args(_provider: Provider, playlist_id: &str, ids: &[String]) -> Vec<String> {
-    let mut out = Vec::with_capacity(3 + ids.len());
-    out.push("playlists".into());
-    out.push("add".into());
-    out.push(playlist_id.into());
-    out.extend(ids.iter().cloned());
-    out
-}
-
-/// Pluck the new playlist's ID out of `zad playlists create --json`
-/// output. zad's shape varies a touch across providers (Spotify
-/// exposes `spotify_id`; YouTube Music uses `id`/`playlist_id`), so
-/// try a small priority list.
-pub fn extract_created_playlist_id(create_response: &Value) -> Option<String> {
-    for key in ["id", "playlist_id", "spotify_id", "uri"] {
-        if let Some(s) = create_response.get(key).and_then(|v| v.as_str())
-            && !s.is_empty()
-        {
-            return Some(s.to_string());
-        }
-    }
-    None
+/// Counters surfaced in the final summary line.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ImportReport {
+    pub playlists_created: usize,
+    pub playlists_skipped_duplicate: usize,
+    pub playlists_failed: usize,
+    pub tracks_added: usize,
+    pub tracks_unresolved: usize,
+    pub tracks_failed: usize,
 }
 
 /// Final stderr summary line.
@@ -383,129 +427,39 @@ pub fn import_summary_line(report: &ImportReport) -> String {
     )
 }
 
-/// Counters surfaced in the final summary line.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ImportReport {
-    pub playlists_created: usize,
-    pub playlists_skipped_duplicate: usize,
-    pub playlists_failed: usize,
-    pub tracks_added: usize,
-    pub tracks_unresolved: usize,
-    pub tracks_failed: usize,
+/// Case-insensitive, trimmed comparison. "Focus" and "focus " are
+/// the same playlist for the purposes of duplicate-skip.
+pub fn is_duplicate_name(name: &str, existing: &[String]) -> bool {
+    let needle = name.trim().to_ascii_lowercase();
+    existing
+        .iter()
+        .any(|e| e.trim().to_ascii_lowercase() == needle)
 }
 
-fn fetch_existing_playlist_names(
-    zad: &Path,
-    policy: &Path,
-    provider: Provider,
-) -> Result<Vec<String>> {
-    let mut names = Vec::new();
-    let mut offset: usize = 0;
-    let max_pages = 1000usize;
-    for _ in 0..max_pages {
-        let limit_str = PAGE_SIZE.to_string();
-        let offset_str = offset.to_string();
-        let args = [
-            "playlists",
-            "list",
-            "--limit",
-            &limit_str,
-            "--offset",
-            &offset_str,
-        ];
-        let value = run_zad_json(zad, policy, provider, &args)?;
-        let page = extract_items(&value);
-        let n = page.len();
-        for item in &page {
-            if let Some(name) = playlist_display_name(item) {
-                names.push(name);
-            }
-        }
-        if n < PAGE_SIZE {
-            break;
-        }
-        offset += n;
-    }
-    Ok(names)
-}
-
-fn run_zad_search(
-    zad: &Path,
-    policy: &Path,
-    provider: Provider,
-    query: &str,
-    ty: Option<&str>,
-) -> Result<Vec<Value>> {
-    let mut args: Vec<&str> = vec!["search", query];
-    if let Some(t) = ty {
-        args.push("--type");
-        args.push(t);
-    }
-    let value = run_zad_json(zad, policy, provider, &args)?;
-    Ok(extract_items(&value))
-}
-
-fn run_zad_json(zad: &Path, policy: &Path, provider: Provider, args: &[&str]) -> Result<Value> {
-    let cmd_args = build_zad_args(provider, args);
-    let out = Command::new(zad)
-        .args(&cmd_args)
-        .env(ZAD_PERMISSIONS_PATH_ENV, policy)
-        .output()
-        .with_context(|| format!("running {} {}", zad.display(), cmd_args.join(" ")))?;
-    if !out.status.success() {
-        bail!(
-            "zad {} exited {}: {}",
-            cmd_args.join(" "),
-            out.status,
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    serde_json::from_slice(&out.stdout)
-        .with_context(|| format!("parsing JSON from `zad {}`", cmd_args.join(" ")))
-}
-
-fn first_str<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
-    for k in keys {
-        if let Some(s) = value.get(*k).and_then(|v| v.as_str())
-            && !s.is_empty()
-        {
-            return Some(s);
-        }
-    }
-    None
-}
-
-fn primary_artist(track: &Value) -> Option<String> {
-    if let Some(arr) = track.get("artists").and_then(|v| v.as_array())
-        && let Some(first) = arr.first()
-    {
-        if let Some(s) = first.as_str()
-            && !s.is_empty()
-        {
-            return Some(s.to_string());
-        }
-        if let Some(s) = first.get("name").and_then(|v| v.as_str())
-            && !s.is_empty()
-        {
-            return Some(s.to_string());
-        }
-    }
-    if let Some(s) = track.get("artist").and_then(|v| v.as_str())
-        && !s.is_empty()
-    {
-        return Some(s.to_string());
-    }
-    None
-}
-
-fn track_label(track: &Value) -> String {
-    let name = first_str(track, &["name", "title"]).unwrap_or("<unknown>");
-    match primary_artist(track) {
-        Some(a) => format!("{name} — {a}"),
-        None => name.to_string(),
+/// Render a track for status output.
+pub fn track_label(track: &Track) -> String {
+    let title = track.title.trim();
+    let title = if title.is_empty() { "<unknown>" } else { title };
+    match track.primary_artist() {
+        Some(a) => format!("{title} — {a}"),
+        None => title.to_string(),
     }
 }
 
-fn str_refs(args: &[String]) -> Vec<&str> {
-    args.iter().map(String::as_str).collect()
+fn map_zad(e: zad::ZadError) -> anyhow::Error {
+    anyhow::anyhow!("{e}")
+}
+
+/// Walk a [`Playlist`] and return tracks that have at least one
+/// piece of resolvable information (a source id, an ISRC, or a
+/// title). Useful for unit tests of the resolver.
+pub fn resolvable_tracks(playlist: &Playlist) -> impl Iterator<Item = &Track> {
+    playlist.tracks.iter().filter(|t| {
+        !t.source_ids.is_empty()
+            || t.isrc
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+            || !t.title.trim().is_empty()
+    })
 }
