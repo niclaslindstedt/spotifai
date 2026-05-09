@@ -67,9 +67,7 @@ pub fn read_self_identity(provider: Provider) -> Result<SelfIdentity> {
         Ok(s) => toml::from_str(&s)
             .with_context(|| format!("parsing self-identity file {}", path.display())),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SelfIdentity::default()),
-        Err(e) => {
-            Err(anyhow::Error::new(e).context(format!("reading {}", path.display())))
-        }
+        Err(e) => Err(anyhow::Error::new(e).context(format!("reading {}", path.display()))),
     }
 }
 
@@ -78,7 +76,8 @@ pub fn read_self_identity(provider: Provider) -> Result<SelfIdentity> {
 pub fn write_self_identity(provider: Provider, identity: &SelfIdentity) -> Result<()> {
     let path = self_id_path(provider)?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
     }
     let body = toml::to_string_pretty(identity).context("serializing self-identity TOML")?;
     std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;

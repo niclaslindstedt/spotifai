@@ -150,10 +150,7 @@ async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) ->
         }
 
         if dry_run {
-            output::info(&format!(
-                "would create `{name}` with {} tracks",
-                uris.len()
-            ));
+            output::info(&format!("would create `{name}` with {} tracks", uris.len()));
             report.playlists_created += 1;
             report.tracks_added += uris.len();
             continue;
@@ -211,10 +208,7 @@ fn spotify_uri_for(id: &str) -> String {
     }
 }
 
-async fn resolve_spotify_via_search<F, Fut>(
-    track: &Track,
-    mut search: F,
-) -> Result<Option<String>>
+async fn resolve_spotify_via_search<F, Fut>(track: &Track, mut search: F) -> Result<Option<String>>
 where
     F: FnMut(String, Vec<String>) -> Fut,
     Fut: std::future::Future<Output = Result<Option<String>>>,
@@ -254,7 +248,11 @@ async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> 
         .map_err(map_zad)?;
     let existing_names: BTreeSet<String> = existing
         .iter()
-        .filter_map(|p| p.snippet.as_ref().map(|s| s.title.trim().to_ascii_lowercase()))
+        .filter_map(|p| {
+            p.snippet
+                .as_ref()
+                .map(|s| s.title.trim().to_ascii_lowercase())
+        })
         .collect();
     output::info(&format!("{} existing playlists on target", existing.len()));
 
@@ -320,9 +318,8 @@ async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> 
         } else {
             Privacy::Private
         };
-        let req =
-            CreatePlaylistRequest::new(name.clone(), playlist.description.clone(), privacy)
-                .map_err(map_zad)?;
+        let req = CreatePlaylistRequest::new(name.clone(), playlist.description.clone(), privacy)
+            .map_err(map_zad)?;
         let created = match client.create_playlist(req).await {
             Ok(p) => p,
             Err(e) => {
@@ -353,10 +350,7 @@ async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> 
     Ok(())
 }
 
-async fn resolve_ymusic_via_search<F, Fut>(
-    track: &Track,
-    mut search: F,
-) -> Result<Option<String>>
+async fn resolve_ymusic_via_search<F, Fut>(track: &Track, mut search: F) -> Result<Option<String>>
 where
     F: FnMut(String) -> Fut,
     Fut: std::future::Future<Output = Result<Option<String>>>,
@@ -445,11 +439,7 @@ pub fn is_duplicate_name(name: &str, existing: &[String]) -> bool {
 /// Render a track for status output.
 pub fn track_label(track: &Track) -> String {
     let title = track.title.trim();
-    let title = if title.is_empty() {
-        "<unknown>"
-    } else {
-        title
-    };
+    let title = if title.is_empty() { "<unknown>" } else { title };
     match track.primary_artist() {
         Some(a) => format!("{title} — {a}"),
         None => title.to_string(),
@@ -466,7 +456,10 @@ fn map_zad(e: zad::ZadError) -> anyhow::Error {
 pub fn resolvable_tracks(playlist: &Playlist) -> impl Iterator<Item = &Track> {
     playlist.tracks.iter().filter(|t| {
         !t.source_ids.is_empty()
-            || t.isrc.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+            || t.isrc
+                .as_deref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
             || !t.title.trim().is_empty()
     })
 }

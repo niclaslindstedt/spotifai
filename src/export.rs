@@ -98,10 +98,7 @@ async fn collect_spotify() -> Result<Envelope> {
     output::info(&format!("  {} liked tracks", saved_tracks.len()));
 
     output::info("fetching saved albums…");
-    let saved_albums = http
-        .list_saved_albums(PAGE_SIZE)
-        .await
-        .map_err(map_zad)?;
+    let saved_albums = http.list_saved_albums(PAGE_SIZE).await.map_err(map_zad)?;
     warn_if_capped("saved albums", saved_albums.len(), PAGE_SIZE as usize);
     output::info(&format!("  {} saved albums", saved_albums.len()));
 
@@ -126,10 +123,7 @@ async fn collect_spotify() -> Result<Envelope> {
                 playlists_with_tracks.push((summary, items));
             }
             Err(e) => {
-                output::warn(&format!(
-                    "playlist `{}` ({id}) skipped: {e}",
-                    summary.name
-                ));
+                output::warn(&format!("playlist `{}` ({id}) skipped: {e}", summary.name));
                 playlists_with_tracks.push((summary, Vec::new()));
             }
         }
@@ -190,9 +184,7 @@ async fn collect_ymusic() -> Result<Envelope> {
                 playlists_with_items.push((summary, items));
             }
             Err(e) => {
-                output::warn(&format!(
-                    "playlist `{title_label}` ({id}) skipped: {e}"
-                ));
+                output::warn(&format!("playlist `{title_label}` ({id}) skipped: {e}"));
                 playlists_with_items.push((summary, Vec::new()));
             }
         }

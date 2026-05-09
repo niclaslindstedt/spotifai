@@ -44,8 +44,7 @@ fn bootstrap_signing_key_returns_a_fingerprint() {
     let tmp = TempDir::new().unwrap();
     isolate(&tmp);
 
-    let fp = bootstrap_signing_key()
-        .expect("bootstrap should succeed under the in-memory backend");
+    let fp = bootstrap_signing_key().expect("bootstrap should succeed under the in-memory backend");
     let fp = fp.expect("a fingerprint is produced");
     assert!(
         !fp.is_empty(),

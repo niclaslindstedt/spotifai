@@ -166,7 +166,9 @@ where
             }
             s if s.starts_with("--type=") => types.push(s["--type=".len()..].to_string()),
             "--limit" | "-l" => {
-                let v = iter.next().ok_or_else(|| anyhow!("--limit needs a value"))?;
+                let v = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--limit needs a value"))?;
                 limit = parse_limit(v)?;
             }
             s if s.starts_with("--limit=") => limit = parse_limit(&s["--limit=".len()..])?,
@@ -195,10 +197,7 @@ where
     })
 }
 
-fn parse_playlists<'a, I>(
-    provider: Provider,
-    iter: &mut std::iter::Peekable<I>,
-) -> Result<Verb>
+fn parse_playlists<'a, I>(provider: Provider, iter: &mut std::iter::Peekable<I>) -> Result<Verb>
 where
     I: Iterator<Item = &'a String>,
 {
@@ -284,9 +283,7 @@ where
             other => bail!("unknown arg `{other}` for `playlists create`"),
         }
     }
-    let name = name.ok_or_else(|| {
-        anyhow!("`playlists create` needs `{name_flag} <name>`")
-    })?;
+    let name = name.ok_or_else(|| anyhow!("`playlists create` needs `{name_flag} <name>`"))?;
     Ok(Verb::PlaylistsCreate {
         name,
         description,
@@ -294,10 +291,7 @@ where
     })
 }
 
-fn parse_library<'a, I>(
-    provider: Provider,
-    iter: &mut std::iter::Peekable<I>,
-) -> Result<Verb>
+fn parse_library<'a, I>(provider: Provider, iter: &mut std::iter::Peekable<I>) -> Result<Verb>
 where
     I: Iterator<Item = &'a String>,
 {
@@ -318,9 +312,9 @@ where
             match bucket {
                 "tracks" => Ok(Verb::SpotifyLibraryTracksList { limit: opts.limit }),
                 "albums" => Ok(Verb::SpotifyLibraryAlbumsList { limit: opts.limit }),
-                other => bail!(
-                    "unknown library bucket `{other}` for Spotify; expected tracks or albums"
-                ),
+                other => {
+                    bail!("unknown library bucket `{other}` for Spotify; expected tracks or albums")
+                }
             }
         }
         Provider::YouTubeMusic => {
@@ -363,7 +357,9 @@ where
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--limit" | "-l" => {
-                let v = iter.next().ok_or_else(|| anyhow!("--limit needs a value"))?;
+                let v = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--limit needs a value"))?;
                 opts.limit = parse_limit(v)?;
             }
             s if s.starts_with("--limit=") => {
@@ -601,8 +597,8 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
         }
         Verb::YmusicLibraryList { limit } => {
             let client = zad_client::load_ymusic_all()?;
-            let req = LikedRequest::new(limit)
-                .map_err(|e| anyhow!("invalid liked request: {e}"))?;
+            let req =
+                LikedRequest::new(limit).map_err(|e| anyhow!("invalid liked request: {e}"))?;
             let res = client
                 .liked(req)
                 .await
@@ -623,13 +619,22 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
 fn spotify_search_to_value(res: &zad::service::spotify::client::SearchResults) -> Value {
     let mut out = serde_json::Map::new();
     if let Some(p) = res.tracks.as_ref() {
-        out.insert("tracks".into(), json!({ "items": to_value(&p.items).unwrap_or(Value::Null) }));
+        out.insert(
+            "tracks".into(),
+            json!({ "items": to_value(&p.items).unwrap_or(Value::Null) }),
+        );
     }
     if let Some(p) = res.albums.as_ref() {
-        out.insert("albums".into(), json!({ "items": to_value(&p.items).unwrap_or(Value::Null) }));
+        out.insert(
+            "albums".into(),
+            json!({ "items": to_value(&p.items).unwrap_or(Value::Null) }),
+        );
     }
     if let Some(p) = res.artists.as_ref() {
-        out.insert("artists".into(), json!({ "items": to_value(&p.items).unwrap_or(Value::Null) }));
+        out.insert(
+            "artists".into(),
+            json!({ "items": to_value(&p.items).unwrap_or(Value::Null) }),
+        );
     }
     if let Some(p) = res.playlists.as_ref() {
         out.insert(
@@ -681,6 +686,8 @@ fn write_json(value: &Value) -> Result<()> {
     handle
         .write_all(body.as_bytes())
         .context("writing JSON to stdout")?;
-    handle.write_all(b"\n").context("writing trailing newline")?;
+    handle
+        .write_all(b"\n")
+        .context("writing trailing newline")?;
     Ok(())
 }

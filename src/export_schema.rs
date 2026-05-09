@@ -461,9 +461,7 @@ fn ymusic_playlist_item_to_track(it: zad::service::ymusic::client::PlaylistItem)
         }
     }
     let snippet = it.snippet.as_ref();
-    let title = snippet
-        .and_then(|s| s.title.clone())
-        .unwrap_or_default();
+    let title = snippet.and_then(|s| s.title.clone()).unwrap_or_default();
     let artists: Vec<String> = snippet
         .and_then(|s| s.video_owner_channel_title.clone())
         .map(|t| vec![t])
@@ -495,7 +493,10 @@ impl Track {
     /// the track has no artists. Used as a tie-breaker key in
     /// duplicate detection.
     pub fn primary_artist(&self) -> Option<&str> {
-        self.artists.iter().find(|a| !a.trim().is_empty()).map(String::as_str)
+        self.artists
+            .iter()
+            .find(|a| !a.trim().is_empty())
+            .map(String::as_str)
     }
 
     /// Build a Spotify-style search query from the track's

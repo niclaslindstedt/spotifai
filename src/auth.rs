@@ -107,10 +107,7 @@ pub fn run(provider: Provider, user_args: &[String]) -> Result<()> {
 }
 
 async fn run_async(provider: Provider, opts: AuthOptions) -> Result<()> {
-    output::header(&format!(
-        "spotifai auth ({})",
-        provider.display_name()
-    ));
+    output::header(&format!("spotifai auth ({})", provider.display_name()));
     match provider {
         Provider::Spotify => run_spotify(opts).await,
         Provider::YouTubeMusic => run_ymusic(opts).await,
@@ -261,8 +258,7 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
         Ok(ch) => {
             identity.channel_id = Some(ch.id.clone());
             if identity.display_name.is_none() {
-                identity.display_name =
-                    ch.snippet.as_ref().and_then(|s| s.title.clone());
+                identity.display_name = ch.snippet.as_ref().and_then(|s| s.title.clone());
             }
             zad_client::write_self_identity(Provider::YouTubeMusic, &identity)?;
             output::status(&format!("authenticated channel `{}`", ch.id));
@@ -281,10 +277,15 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
 /// for the full superset means a user goes through the consent
 /// screen exactly once even if they later switch profiles.
 fn full_zad_scopes() -> Vec<String> {
-    let mut out: Vec<String> = ["search", "playlists.read", "playlists.write", "library.read"]
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect();
+    let mut out: Vec<String> = [
+        "search",
+        "playlists.read",
+        "playlists.write",
+        "library.read",
+    ]
+    .iter()
+    .map(|s| (*s).to_string())
+    .collect();
     out.sort();
     out.dedup();
     out

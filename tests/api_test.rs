@@ -3,9 +3,7 @@
 //! Spotify/YouTube Music HTTP, neither of which is unit-testable;
 //! what we lock down here is the user-args parser that drives it.
 
-use spotifai::api::{
-    DEFAULT_LIMIT, SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, Verb, parse_verb,
-};
+use spotifai::api::{DEFAULT_LIMIT, SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, Verb, parse_verb};
 use spotifai::providers::Provider;
 
 fn args(raw: &[&str]) -> Vec<String> {
@@ -34,7 +32,12 @@ fn search_collects_multiple_type_flags() {
     let v = parse_verb(
         Provider::Spotify,
         &args(&[
-            "search", "kind of blue", "--type", "album", "--type", "artist",
+            "search",
+            "kind of blue",
+            "--type",
+            "album",
+            "--type",
+            "artist",
         ]),
     )
     .unwrap();
@@ -56,11 +59,7 @@ fn playlists_list_takes_limit() {
 
 #[test]
 fn playlists_show_takes_id() {
-    let v = parse_verb(
-        Provider::Spotify,
-        &args(&["playlists", "show", "abc123"]),
-    )
-    .unwrap();
+    let v = parse_verb(Provider::Spotify, &args(&["playlists", "show", "abc123"])).unwrap();
     match v {
         Verb::PlaylistsShow { id, limit } => {
             assert_eq!(id, "abc123");
@@ -97,16 +96,20 @@ fn playlists_create_uses_name_for_spotify_and_title_for_ymusic() {
 
     // Mismatched flag: Spotify expects --name, ymusic expects
     // --title. Using the wrong one should error out cleanly.
-    assert!(parse_verb(
-        Provider::Spotify,
-        &args(&["playlists", "create", "--title", "X"])
-    )
-    .is_err());
-    assert!(parse_verb(
-        Provider::YouTubeMusic,
-        &args(&["playlists", "create", "--name", "X"])
-    )
-    .is_err());
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "create", "--title", "X"])
+        )
+        .is_err()
+    );
+    assert!(
+        parse_verb(
+            Provider::YouTubeMusic,
+            &args(&["playlists", "create", "--name", "X"])
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -134,11 +137,7 @@ fn library_routes_per_provider() {
     .unwrap();
     assert_eq!(s, Verb::SpotifyLibraryTracksList { limit: 10 });
 
-    let s2 = parse_verb(
-        Provider::Spotify,
-        &args(&["library", "albums", "list"]),
-    )
-    .unwrap();
+    let s2 = parse_verb(Provider::Spotify, &args(&["library", "albums", "list"])).unwrap();
     assert_eq!(
         s2,
         Verb::SpotifyLibraryAlbumsList {
@@ -159,39 +158,43 @@ fn library_rejects_wrong_shape_for_provider() {
     // Spotify has no bare `library list`; ymusic has no
     // `library tracks list`.
     assert!(parse_verb(Provider::Spotify, &args(&["library", "list"])).is_err());
-    assert!(parse_verb(
-        Provider::YouTubeMusic,
-        &args(&["library", "tracks", "list"])
-    )
-    .is_err());
+    assert!(
+        parse_verb(
+            Provider::YouTubeMusic,
+            &args(&["library", "tracks", "list"])
+        )
+        .is_err()
+    );
 }
 
 #[test]
 fn limit_is_validated_and_capped() {
-    assert!(parse_verb(
-        Provider::Spotify,
-        &args(&["playlists", "list", "--limit", "0"])
-    )
-    .is_err());
-    assert!(parse_verb(
-        Provider::Spotify,
-        &args(&["playlists", "list", "--limit", "51"])
-    )
-    .is_err());
-    assert!(parse_verb(
-        Provider::Spotify,
-        &args(&["playlists", "list", "--limit", "abc"])
-    )
-    .is_err());
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "list", "--limit", "0"])
+        )
+        .is_err()
+    );
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "list", "--limit", "51"])
+        )
+        .is_err()
+    );
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "list", "--limit", "abc"])
+        )
+        .is_err()
+    );
 }
 
 #[test]
 fn json_and_pretty_flags_are_accepted_as_no_ops() {
-    let v = parse_verb(
-        Provider::Spotify,
-        &args(&["playlists", "list", "--json"]),
-    )
-    .unwrap();
+    let v = parse_verb(Provider::Spotify, &args(&["playlists", "list", "--json"])).unwrap();
     assert_eq!(
         v,
         Verb::PlaylistsList {
