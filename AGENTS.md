@@ -44,57 +44,52 @@ Prompts live under `prompts/` and are versioned independently of the binary. Whe
 
 ### Upstream dependencies: zag and zad
 
-The two upstream tools are integrated very differently — make sure you pick the
-right one before adding code:
+Both upstream tools are consumed as **Rust libraries** via crates.io:
 
-- **zag** ([niclaslindstedt/zag](https://github.com/niclaslindstedt/zag)) is
-  consumed as a **Rust library** via the [`zag`](https://crates.io/crates/zag)
-  crate on crates.io, pinned in `Cargo.toml`. The crate re-exports
-  `zag-agent` (core), `zag::orch::*` (orchestration), and `zag::serve::*`
-  (HTTP/WS server). Use the in-process API directly — do not shell out to the
-  `zag` CLI. Bump the version in `Cargo.toml` like any other Rust dep.
+- **zag** ([niclaslindstedt/zag](https://github.com/niclaslindstedt/zag)) —
+  the [`zag`](https://crates.io/crates/zag) crate. Re-exports `zag-agent`
+  (core), `zag::orch::*` (orchestration), and `zag::serve::*` (HTTP/WS
+  server). Use the in-process API directly — do not shell out.
 
-- **zad** ([niclaslindstedt/zad](https://github.com/niclaslindstedt/zad)) is
-  consumed as a **separately-installed binary**, not as a Rust crate. spotifai
-  forward-routes Spotify subcommands to `zad` (e.g. `spotifai api playlists
-  list` → `zad spotify playlists list`). Forward routing lets zad enforce its
-  own permission policy, OAuth flow, and keychain access on its own terms; we
-  do not re-implement them in spotifai. The pinned zad version lives in
-  `.zadrc` at the repo root and is checked into git so the install script and
-  CI agree on which release to fetch. spotifai installs the pinned binary into
-  `~/.spotifai/bin/zad` and invokes that path explicitly, so the version on
-  `$PATH` never matters and a globally-installed `zad` cannot accidentally be
-  used with mismatched permissions or schema.
+- **zad** ([niclaslindstedt/zad](https://github.com/niclaslindstedt/zad)) —
+  the [`zad`](https://crates.io/crates/zad) crate. Spotifai uses
+  `zad::service::spotify::Spotify` and `zad::service::ymusic::Ymusic`
+  (typed facades), `zad::service::spotify::SpotifyHttp` /
+  `zad::service::ymusic::YmusicHttp` (raw HTTP for verbs the facade does
+  not yet expose), `zad::oauth::run_loopback_flow` (in-process OAuth),
+  `zad::secrets::{store, load, account, Scope}` (OS keychain), and
+  `zad::permissions::{signing, trust}` (Ed25519 trust store). All
+  spotifai-side helpers are bundled in [`src/zad_client.rs`](src/zad_client.rs).
+  Bump zad's version in `Cargo.toml` like any other Rust dep.
 
-To install or update the local zad binary, run **`spotifai install`** (or
-`spotifai install --force` to redownload). The command reads `.zadrc`, fetches
-the matching release into `~/.spotifai/bin/zad`, and as a side effect scaffolds
-a default read-only `~/.spotifai/permissions.toml` if one does not already
-exist. Both `spotifai api` and `spotifai ask` re-run this install/version
-check on every invocation, so an explicit install step is only needed when
-you want to surface install errors up front (e.g. in a CI job) or when you
-need to refresh the binary after bumping `.zadrc`. Do **not** install zad via
-`cargo install zad`, `~/.zad/...`, or distro packages — spotifai always
-invokes the absolute `~/.spotifai/bin/zad` path so a `$PATH`-installed zad
-will be ignored.
+When bumping zad, run `cargo test` and exercise `spotifai auth`,
+`spotifai api`, and `spotifai export|import` against a real account
+locally — zad's typed surface is still evolving and request/response
+shapes shift between minor releases.
 
-When bumping `.zadrc`, verify the targeted release exists at
-`https://github.com/niclaslindstedt/zad/releases/tag/<version>` and run any
-forward-routed subcommands locally — zad's CLI surface is not yet stable across
-minor versions.
+### Permissions files (`~/.spotifai/permissions/<provider>/<profile>.toml`)
 
-### Permissions file (`~/.spotifai/permissions.toml`)
+Two profiles per provider:
 
-`spotifai ask` reads this TOML file and injects it into the agent's system
-prompt so the agent self-restricts to a listed set of `spotifai api` verbs.
-The first run of `spotifai install` writes a read-only default; subsequent
-runs preserve any hand edits. The file lives in `~/.spotifai/` (not in the
-project) so the same policy applies to every directory the user runs
-`spotifai ask` from. See [`src/permissions.rs`](src/permissions.rs) for the
-schema and [`docs/configuration.md`](docs/configuration.md) for the user-facing
-reference. The file is **advisory** — it tells the LLM what surface to use
-but does not replace zad's own signed `~/.zad/services/spotify/permissions.toml`,
-which is the authoritative runtime gate.
+- `ask.toml` — read-only verbs for `spotifai ask`.
+- `playlist.toml` — adds `playlists create / add / rename` for
+  `spotifai playlist`.
+
+`spotifai install` scaffolds them with safe defaults and signs each one
+with the per-machine Ed25519 key in the OS keychain (account
+`zad/signing:v1`); the resulting signature is upserted into
+`~/.zad/signing/trusted.toml`, the per-machine trust store. Subsequent
+zad library calls that load these files pass the trust check at load
+time.
+
+The `allowed` / `denied` lists are also injected into the agent's system
+prompt so the agent self-restricts to the verbs the user has allowed.
+After hand-editing, re-run `spotifai install` to resign.
+
+See [`src/permissions.rs`](src/permissions.rs) for the schema,
+[`docs/configuration.md`](docs/configuration.md) for the user-facing
+reference, and [`docs/export_schema.md`](docs/export_schema.md) for the
+provider-agnostic export/import envelope.
 
 ## Where new code goes
 

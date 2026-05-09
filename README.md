@@ -16,10 +16,10 @@ A Rust CLI for managing your music library and playlists via natural-language qu
 
 ## Supported providers
 
-| Provider slug | Display name  | Backing zad subcommand | Notes |
-|---|---|---|---|
-| `spotify` (default) | Spotify       | `zad spotify` | OAuth 2.0 PKCE, one developer app per user. |
-| `ymusic`            | YouTube Music | `zad ymusic`  | Google OAuth 2.0 Desktop-app credentials, talks to YouTube Data API v3. Requires zad ≥ 0.6.0. |
+| Provider slug | Display name  | Notes |
+|---|---|---|
+| `spotify` (default) | Spotify       | OAuth 2.0 PKCE, one developer app per user. |
+| `ymusic`            | YouTube Music | Google OAuth 2.0 Desktop-app credentials, talks to YouTube Data API v3. |
 
 The provider abstraction is built so a third backend (Tidal, Apple Music, …) is one new variant in `src/providers.rs` plus the matching policy/example block.
 
@@ -46,20 +46,20 @@ make build
 ## Quick start
 
 ```sh
-# Walk the four-step guided setup: install the pinned zad binary into
-# ~/.spotifai/bin, bootstrap the local Ed25519 signing key in your OS
-# keychain, scaffold the per-provider permissions files under
-# ~/.spotifai/permissions/<provider>/ (ask.toml is read-only;
+# Walk the three-step guided setup: bootstrap the per-machine Ed25519
+# signing key in your OS keychain, scaffold the per-provider permissions
+# files under ~/.spotifai/permissions/<provider>/ (ask.toml is read-only;
 # playlist.toml adds create/add/rename), and sign each one. Re-run
 # after editing any profile file to resign.
 spotifai install
 
-# Authenticate with Spotify (opens browser for the OAuth 2.0 PKCE flow).
-# Forwards to `zad service create spotify` at zad's global scope, so the
-# credential applies to every directory you later run `spotifai api …` from.
+# Authenticate with Spotify (opens browser for an in-process OAuth 2.0
+# PKCE loopback flow). The resulting client_id and refresh token are
+# written to your OS keychain and used by every spotifai surface.
 spotifai auth
 
-# (Optional) Authenticate with YouTube Music. Same flow, against Google.
+# (Optional) Authenticate with YouTube Music. Same flow, against Google
+# (with a client_secret for the Desktop OAuth client).
 spotifai auth --provider ymusic
 
 # Ask a natural-language question about your Spotify library — `ask` is
@@ -93,32 +93,40 @@ spotifai export --provider spotify | spotifai import --provider ymusic
 spotifai <command> [options]
 
 Commands:
-  install            Guided setup: install pinned zad binary, bootstrap
-                     local signing key, scaffold and sign every per-
-                     (provider, profile) permissions file under
+  install            Guided setup: bootstrap the local signing key,
+                     scaffold and sign every per-(provider, profile)
+                     permissions file under
                      ~/.spotifai/permissions/<provider>/.
-  auth   [args…]     Forward to `zad service create <provider>` (global
-                     scope) to register OAuth credentials. --provider
-                     selects the backend (default: spotify).
-  api    <args…>     Forward to `zad <provider> …` with ZAD_PERMISSIONS_PATH
-                     pinned to the active profile's file. Requires
-                     `spotifai ask`/`playlist`/`export` to have selected
-                     a (provider, profile) pair via env vars; direct
-                     shell invocations exit with an error.
+  auth   [args…]     Run an in-process OAuth loopback flow for the
+                     active provider and store the resulting tokens
+                     in the OS keychain. Accepts --client-id,
+                     --client-secret (ymusic only), and --no-browser.
+  api    <args…>     Run a typed call against the active provider
+                     through the in-process zad library and print
+                     JSON to stdout. Grammar: search "q",
+                     playlists list/show/create/add, library tracks
+                     list / library albums list (Spotify), library
+                     list (ymusic). Requires `spotifai ask`/`playlist`
+                     to have selected a (provider, profile) pair via
+                     env vars; direct shell invocations exit with an
+                     error.
   ask    [query…]    Read-only zag session over your library, with
-                     ~/.spotifai/permissions/<provider>/ask.toml injected.
+                     ~/.spotifai/permissions/<provider>/ask.toml
+                     injected.
   playlist [query…]  zag session that builds one new playlist for you,
                      with ~/.spotifai/permissions/<provider>/playlist.toml
                      injected.
-  export             Dump the user's library on the active provider into
-                     one JSON document. --provider selects the backend;
-                     --output PATH writes to a file instead of stdout.
-  import             Recreate playlists from a `spotifai export` envelope
-                     on the active provider. Reads stdin or --input PATH.
-                     Cross-provider migrations resolve tracks via ISRC
-                     then title+artist search; same-provider re-imports
-                     reuse the embedded IDs. Existing playlists with the
-                     same name are skipped.
+  export             Dump the user's library on the active provider
+                     into the unified spotifai JSON schema. --provider
+                     selects the source; --output PATH writes to a
+                     file instead of stdout.
+  import             Recreate playlists from a `spotifai export`
+                     envelope on the active provider. Reads stdin or
+                     --input PATH. Cross-provider migrations resolve
+                     tracks via ISRC (Spotify) then title+artist
+                     search; same-provider re-imports reuse the
+                     embedded source ids. Existing playlists with
+                     the same name are skipped.
   help               Print help for a command
 
 Options:
@@ -133,13 +141,16 @@ Run `spotifai help <command>` or see [`man/main.md`](man/main.md) for full flag 
 
 | File | Purpose |
 |---|---|
-| `~/.spotifai/bin/zad` | Pinned zad binary, written by `spotifai install`. |
-| `~/.spotifai/permissions/<provider>/` | Per-(provider, profile) policy files. `ask.toml` ships read-only; `playlist.toml` adds `playlists create`, `playlists add`, and `playlists rename`. Hand-edit `allowed` / `denied` to widen or narrow, then re-run `spotifai install` so every profile file is resigned and zad will load it again. Verb names differ between providers (Spotify: `library tracks/albums …`; YouTube Music: `library list` / `library like|unlike`). |
-| `~/.zad/signing/trusted.toml` | Per-machine signed trust store, populated by `zad signing init` during `spotifai install`. zad ≥ 0.4.0 fails closed at load time on any permissions file whose `[signature]` block is not in this trust store. |
+| `~/.spotifai/permissions/<provider>/` | Per-(provider, profile) policy files. `ask.toml` ships read-only; `playlist.toml` adds `playlists create`, `playlists add`, and `playlists rename`. Hand-edit `allowed` / `denied` to widen or narrow, then re-run `spotifai install` so every profile file is resigned. Verb names differ between providers (Spotify: `library tracks/albums …`; YouTube Music: `library list` / `library like|unlike`). |
+| `~/.spotifai/<provider>.toml` | Per-provider self-identity captured at OAuth time (Spotify user id, YouTube channel id). Used by `playlists create`. |
+| `~/.zad/signing/trusted.toml` | Per-machine signed trust store, populated by `spotifai install`. The zad library fails closed at load time on any permissions file whose signature is not registered here. |
 
-Provider credentials and zad's own runtime permissions live under `~/.zad/services/<provider>/...` and are managed by zad directly — see [zad's docs/configuration.md](https://github.com/niclaslindstedt/zad/blob/main/docs/configuration.md) for the full reference.
+Provider credentials are stored in the OS keychain (under the `zad`
+service, accounts `spotify-client-id:global`, `spotify-refresh:global`,
+`ymusic-client-id:global`, `ymusic-client-secret:global`,
+`ymusic-refresh:global`). Run `spotifai auth` to (re-)register them.
 
-See [docs/configuration.md](docs/configuration.md) for the spotifai-side reference.
+See [docs/configuration.md](docs/configuration.md) for the spotifai-side reference and [docs/export_schema.md](docs/export_schema.md) for the export/import envelope schema.
 
 ## Examples
 
@@ -149,15 +160,16 @@ See [`examples/`](examples/) for runnable shell script demos.
 
 _Common failure modes and fixes._
 
-- **`spotifai auth` hangs or fails (Spotify)** — confirm your Spotify app dashboard has `http://127.0.0.1` registered as an allowed redirect host. zad's loopback listener picks a random port; Spotify accepts any port on `127.0.0.1` once the host is registered.
+- **`spotifai auth` hangs or fails (Spotify)** — confirm your Spotify app dashboard has `https://127.0.0.1` registered as an allowed redirect host. spotifai's loopback listener picks a random port and terminates TLS in-process with a per-session self-signed certificate; Spotify accepts any port on `127.0.0.1` once the host is registered.
 - **`spotifai auth --provider ymusic` rejects the credential** — make sure the YouTube Data API v3 is enabled on the Google Cloud project and that your Google account is on the OAuth consent screen's test-user list while the app is in testing.
-- **"no credentials" from `spotifai api`** — run `spotifai auth` (Spotify) or `spotifai auth --provider ymusic` (YouTube Music) to register a Client ID and refresh token at zad's global scope.
+- **"missing credentials" from `spotifai api`** — run `spotifai auth` (Spotify) or `spotifai auth --provider ymusic` (YouTube Music) to register a Client ID and refresh token in the OS keychain.
 - **Agent gives wrong results** — use `-v` to inspect reasoning steps and refine your query.
 
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
 - [Configuration](docs/configuration.md)
+- [Export schema](docs/export_schema.md)
 - [Architecture](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)
 

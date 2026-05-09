@@ -1,114 +1,54 @@
-//! Pure-function tests for `spotifai::auth` — no network, no zad spawn.
+//! Pure-function tests for `spotifai::auth` — no network, no keychain.
+//!
+//! `auth::run` itself runs an OAuth loopback flow that's not unit
+//! testable in-process (it needs a browser callback). What we can
+//! lock down here is the argument parser that drives it: which
+//! flags are accepted, which combinations are rejected.
 
-use std::path::PathBuf;
-
-use spotifai::auth::{build_command, forward_args};
-use spotifai::providers::Provider;
+use spotifai::auth::parse_args;
 
 #[test]
-fn forward_args_targets_zad_service_create_provider_slug() {
-    let user: Vec<String> = vec![];
-    assert_eq!(
-        forward_args(Provider::Spotify, &user),
-        vec![
-            "service".to_string(),
-            "create".to_string(),
-            "spotify".to_string(),
-        ]
-    );
-    assert_eq!(
-        forward_args(Provider::YouTubeMusic, &user),
-        vec![
-            "service".to_string(),
-            "create".to_string(),
-            "ymusic".to_string(),
-        ]
+fn parse_args_defaults_to_open_browser_no_creds() {
+    let opts = parse_args(&[]).expect("empty args parse");
+    assert!(opts.client_id.is_none());
+    assert!(opts.client_secret.is_none());
+    assert!(opts.open_browser);
+}
+
+#[test]
+fn parse_args_accepts_separated_and_equal_forms_for_client_id() {
+    let separated = parse_args(&["--client-id".into(), "abc123".into()]).unwrap();
+    assert_eq!(separated.client_id.as_deref(), Some("abc123"));
+    let equal = parse_args(&["--client-id=abc123".into()]).unwrap();
+    assert_eq!(equal.client_id.as_deref(), Some("abc123"));
+}
+
+#[test]
+fn parse_args_accepts_separated_and_equal_forms_for_client_secret() {
+    let separated = parse_args(&["--client-secret".into(), "shh".into()]).unwrap();
+    assert_eq!(separated.client_secret.as_deref(), Some("shh"));
+    let equal = parse_args(&["--client-secret=shh".into()]).unwrap();
+    assert_eq!(equal.client_secret.as_deref(), Some("shh"));
+}
+
+#[test]
+fn parse_args_no_browser_flips_open_browser_off() {
+    let opts = parse_args(&["--no-browser".into()]).unwrap();
+    assert!(!opts.open_browser);
+}
+
+#[test]
+fn parse_args_rejects_unknown_flag() {
+    let err = parse_args(&["--bogus".into()]).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("--bogus"),
+        "error should mention the offending flag, got: {msg}"
     );
 }
 
 #[test]
-fn forward_args_does_not_inject_local_flag() {
-    // Spotify hands out one developer app per user, so credentials
-    // are stored globally. `auth` must not silently scope them to a
-    // project — that defeats the point. The same applies to
-    // YouTube Music, which uses one Google OAuth desktop app per
-    // user.
-    for provider in [Provider::Spotify, Provider::YouTubeMusic] {
-        let user: Vec<String> = vec![];
-        let out = forward_args(provider, &user);
-        assert!(
-            !out.iter().any(|s| s == "--local"),
-            "auth ({}) must not inject --local: {out:?}",
-            provider.as_str()
-        );
-    }
-}
-
-#[test]
-fn forward_args_passes_user_args_through_verbatim() {
-    let user = vec![
-        "--client-id".to_string(),
-        "abc123".to_string(),
-        "--no-browser".to_string(),
-    ];
-    assert_eq!(
-        forward_args(Provider::Spotify, &user),
-        vec![
-            "service".to_string(),
-            "create".to_string(),
-            "spotify".to_string(),
-            "--client-id".to_string(),
-            "abc123".to_string(),
-            "--no-browser".to_string(),
-        ]
-    );
-}
-
-#[test]
-fn forward_args_lets_user_opt_into_local_explicitly() {
-    // The default is global, but if a user really wants to scope the
-    // credentials to the current project they can still pass --local
-    // through. The shim does not strip flags.
-    let user = vec!["--local".to_string()];
-    let out = forward_args(Provider::Spotify, &user);
-    assert_eq!(
-        out,
-        vec![
-            "service".to_string(),
-            "create".to_string(),
-            "spotify".to_string(),
-            "--local".to_string(),
-        ]
-    );
-}
-
-#[test]
-fn build_command_targets_the_managed_zad_binary() {
-    let zad = PathBuf::from("/home/user/.spotifai/bin/zad");
-    let cmd = build_command(&zad, Provider::Spotify, &[]);
-    assert_eq!(cmd.get_program(), zad.as_os_str());
-    let argv: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
-    assert_eq!(
-        argv,
-        vec![
-            std::ffi::OsStr::new("service"),
-            std::ffi::OsStr::new("create"),
-            std::ffi::OsStr::new("spotify"),
-        ]
-    );
-}
-
-#[test]
-fn build_command_uses_ymusic_slug_for_youtube_music() {
-    let zad = PathBuf::from("/home/user/.spotifai/bin/zad");
-    let cmd = build_command(&zad, Provider::YouTubeMusic, &[]);
-    let argv: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
-    assert_eq!(
-        argv,
-        vec![
-            std::ffi::OsStr::new("service"),
-            std::ffi::OsStr::new("create"),
-            std::ffi::OsStr::new("ymusic"),
-        ]
-    );
+fn parse_args_errors_when_value_missing_after_flag() {
+    assert!(parse_args(&["--client-id".into()]).is_err());
+    assert!(parse_args(&["--client-secret".into()]).is_err());
 }

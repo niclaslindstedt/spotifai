@@ -1,177 +1,219 @@
-//! Pure-function tests for `spotifai::api` — no network, no zad spawn.
-
-use std::path::PathBuf;
+//! Pure-function tests for `spotifai::api` — no network, no zad
+//! library calls. The dispatcher itself talks to the keychain and
+//! Spotify/YouTube Music HTTP, neither of which is unit-testable;
+//! what we lock down here is the user-args parser that drives it.
 
 use spotifai::api::{
-    SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, ZAD_PERMISSIONS_PATH_ENV, build_command,
-    command_env, forward_args, resolve_permissions_path,
+    DEFAULT_LIMIT, SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, Verb, parse_verb,
 };
-use spotifai::permissions::Profile;
 use spotifai::providers::Provider;
 
-#[test]
-fn forward_args_prefixes_provider_subcommand() {
-    let user: Vec<String> = vec![];
-    assert_eq!(
-        forward_args(Provider::Spotify, &user),
-        vec!["spotify".to_string()]
-    );
-    assert_eq!(
-        forward_args(Provider::YouTubeMusic, &user),
-        vec!["ymusic".to_string()]
-    );
+fn args(raw: &[&str]) -> Vec<String> {
+    raw.iter().map(|s| s.to_string()).collect()
 }
 
 #[test]
-fn forward_args_passes_user_args_through_verbatim() {
-    let user = vec![
-        "playlists".to_string(),
-        "list".to_string(),
-        "--json".to_string(),
-    ];
-    assert_eq!(
-        forward_args(Provider::Spotify, &user),
-        vec![
-            "spotify".to_string(),
-            "playlists".to_string(),
-            "list".to_string(),
-            "--json".to_string(),
-        ]
-    );
-    assert_eq!(
-        forward_args(Provider::YouTubeMusic, &user),
-        vec![
-            "ymusic".to_string(),
-            "playlists".to_string(),
-            "list".to_string(),
-            "--json".to_string(),
-        ]
-    );
-}
-
-#[test]
-fn forward_args_preserves_hyphen_values() {
-    // Anything after `api` is forwarded as-is, including bare `--` and
-    // flag values that look like options. zad does its own parsing.
-    let user = vec![
-        "tracks".to_string(),
-        "--".to_string(),
-        "--limit=10".to_string(),
-    ];
-    assert_eq!(
-        forward_args(Provider::Spotify, &user),
-        vec![
-            "spotify".to_string(),
-            "tracks".to_string(),
-            "--".to_string(),
-            "--limit=10".to_string(),
-        ]
-    );
-}
-
-#[test]
-fn build_command_targets_the_managed_zad_binary() {
-    let zad = PathBuf::from("/home/user/.spotifai/bin/zad");
-    let cmd = build_command(
-        &zad,
-        Provider::Spotify,
-        &["playlists".to_string(), "list".to_string()],
-    );
-    assert_eq!(cmd.get_program(), zad.as_os_str());
-    let argv: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
-    assert_eq!(
-        argv,
-        vec![
-            std::ffi::OsStr::new("spotify"),
-            std::ffi::OsStr::new("playlists"),
-            std::ffi::OsStr::new("list"),
-        ]
-    );
-}
-
-#[test]
-fn build_command_uses_ymusic_subcommand_for_youtube_music() {
-    let zad = PathBuf::from("/home/user/.spotifai/bin/zad");
-    let cmd = build_command(
-        &zad,
-        Provider::YouTubeMusic,
-        &["playlists".to_string(), "list".to_string()],
-    );
-    let argv: Vec<&std::ffi::OsStr> = cmd.get_args().collect();
-    assert_eq!(
-        argv,
-        vec![
-            std::ffi::OsStr::new("ymusic"),
-            std::ffi::OsStr::new("playlists"),
-            std::ffi::OsStr::new("list"),
-        ]
-    );
-}
-
-#[test]
-fn permissions_env_var_constant_matches_zad() {
-    // zad ≥ 0.3.0 reads exactly this name; if upstream renames it,
-    // this test will at least flag the assumption.
-    assert_eq!(ZAD_PERMISSIONS_PATH_ENV, "ZAD_PERMISSIONS_PATH");
-}
-
-#[test]
-fn profile_env_constant_is_spotifai_namespaced() {
-    // The selector lives under spotifai's namespace because
-    // `spotifai api` resolves the file before forwarding to zad —
-    // zad never sees this variable.
-    assert_eq!(SPOTIFAI_PROFILE_ENV, "SPOTIFAI_PROFILE");
-}
-
-#[test]
-fn provider_env_constant_is_spotifai_namespaced() {
-    assert_eq!(SPOTIFAI_PROVIDER_ENV, "SPOTIFAI_PROVIDER");
-}
-
-#[test]
-fn resolve_permissions_path_errors_when_file_missing() {
-    // No profile file should exist under HOME during a fresh test
-    // run; assert that resolve_permissions_path fails closed. (If a
-    // developer happens to have spotifai installed on their machine,
-    // the file will exist and the call will succeed — which is also a
-    // valid outcome to assert against.)
-    for &provider in Provider::ALL {
-        for &profile in Profile::ALL {
-            match resolve_permissions_path(provider, profile) {
-                Ok(path) => {
-                    let s = path.to_string_lossy();
-                    let posix = format!(
-                        ".spotifai/permissions/{}/{}.toml",
-                        provider.as_str(),
-                        profile.as_str()
-                    );
-                    let win = format!(
-                        ".spotifai\\permissions\\{}\\{}.toml",
-                        provider.as_str(),
-                        profile.as_str()
-                    );
-                    assert!(
-                        s.contains(&posix) || s.contains(&win),
-                        "resolved path should sit under .spotifai/permissions/<provider>/, got {s}"
-                    );
-                }
-                Err(e) => {
-                    let msg = format!("{e:#}");
-                    assert!(
-                        msg.contains("spotifai install"),
-                        "missing-file error should point at `spotifai install`, got: {msg}"
-                    );
-                }
-            }
+fn search_picks_up_query_and_defaults_to_track() {
+    let v = parse_verb(Provider::Spotify, &args(&["search", "moon river"])).unwrap();
+    match v {
+        Verb::Search {
+            query,
+            types,
+            limit,
+        } => {
+            assert_eq!(query, "moon river");
+            assert_eq!(types, vec!["track".to_string()]);
+            assert_eq!(limit, DEFAULT_LIMIT);
         }
+        other => panic!("expected Search, got {other:?}"),
     }
 }
 
 #[test]
-fn command_env_helper_reads_back_explicitly_set_env() {
-    let zad = PathBuf::from("/tmp/zad");
-    let mut cmd = build_command(&zad, Provider::Spotify, &[]);
-    cmd.env(ZAD_PERMISSIONS_PATH_ENV, "/tmp/permissions.toml");
-    let v = command_env(&cmd, ZAD_PERMISSIONS_PATH_ENV).expect("env was set above");
-    assert_eq!(v, std::ffi::OsStr::new("/tmp/permissions.toml"));
+fn search_collects_multiple_type_flags() {
+    let v = parse_verb(
+        Provider::Spotify,
+        &args(&[
+            "search", "kind of blue", "--type", "album", "--type", "artist",
+        ]),
+    )
+    .unwrap();
+    match v {
+        Verb::Search { types, .. } => assert_eq!(types, vec!["album", "artist"]),
+        other => panic!("expected Search, got {other:?}"),
+    }
+}
+
+#[test]
+fn playlists_list_takes_limit() {
+    let v = parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "list", "--limit", "20"]),
+    )
+    .unwrap();
+    assert_eq!(v, Verb::PlaylistsList { limit: 20 });
+}
+
+#[test]
+fn playlists_show_takes_id() {
+    let v = parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "show", "abc123"]),
+    )
+    .unwrap();
+    match v {
+        Verb::PlaylistsShow { id, limit } => {
+            assert_eq!(id, "abc123");
+            assert_eq!(limit, DEFAULT_LIMIT);
+        }
+        other => panic!("expected PlaylistsShow, got {other:?}"),
+    }
+}
+
+#[test]
+fn playlists_create_uses_name_for_spotify_and_title_for_ymusic() {
+    let s = parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "create", "--name", "Focus"]),
+    )
+    .unwrap();
+    match s {
+        Verb::PlaylistsCreate { name, public, .. } => {
+            assert_eq!(name, "Focus");
+            assert!(!public);
+        }
+        other => panic!("expected PlaylistsCreate, got {other:?}"),
+    }
+
+    let y = parse_verb(
+        Provider::YouTubeMusic,
+        &args(&["playlists", "create", "--title", "Focus"]),
+    )
+    .unwrap();
+    match y {
+        Verb::PlaylistsCreate { name, .. } => assert_eq!(name, "Focus"),
+        other => panic!("expected PlaylistsCreate, got {other:?}"),
+    }
+
+    // Mismatched flag: Spotify expects --name, ymusic expects
+    // --title. Using the wrong one should error out cleanly.
+    assert!(parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "create", "--title", "X"])
+    )
+    .is_err());
+    assert!(parse_verb(
+        Provider::YouTubeMusic,
+        &args(&["playlists", "create", "--name", "X"])
+    )
+    .is_err());
+}
+
+#[test]
+fn playlists_add_collects_ids_after_playlist_id() {
+    let v = parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "add", "PLST", "T1", "T2", "T3"]),
+    )
+    .unwrap();
+    match v {
+        Verb::PlaylistsAdd { playlist_id, ids } => {
+            assert_eq!(playlist_id, "PLST");
+            assert_eq!(ids, vec!["T1", "T2", "T3"]);
+        }
+        other => panic!("expected PlaylistsAdd, got {other:?}"),
+    }
+}
+
+#[test]
+fn library_routes_per_provider() {
+    let s = parse_verb(
+        Provider::Spotify,
+        &args(&["library", "tracks", "list", "--limit", "10"]),
+    )
+    .unwrap();
+    assert_eq!(s, Verb::SpotifyLibraryTracksList { limit: 10 });
+
+    let s2 = parse_verb(
+        Provider::Spotify,
+        &args(&["library", "albums", "list"]),
+    )
+    .unwrap();
+    assert_eq!(
+        s2,
+        Verb::SpotifyLibraryAlbumsList {
+            limit: DEFAULT_LIMIT
+        }
+    );
+
+    let y = parse_verb(
+        Provider::YouTubeMusic,
+        &args(&["library", "list", "--limit", "5"]),
+    )
+    .unwrap();
+    assert_eq!(y, Verb::YmusicLibraryList { limit: 5 });
+}
+
+#[test]
+fn library_rejects_wrong_shape_for_provider() {
+    // Spotify has no bare `library list`; ymusic has no
+    // `library tracks list`.
+    assert!(parse_verb(Provider::Spotify, &args(&["library", "list"])).is_err());
+    assert!(parse_verb(
+        Provider::YouTubeMusic,
+        &args(&["library", "tracks", "list"])
+    )
+    .is_err());
+}
+
+#[test]
+fn limit_is_validated_and_capped() {
+    assert!(parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "list", "--limit", "0"])
+    )
+    .is_err());
+    assert!(parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "list", "--limit", "51"])
+    )
+    .is_err());
+    assert!(parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "list", "--limit", "abc"])
+    )
+    .is_err());
+}
+
+#[test]
+fn json_and_pretty_flags_are_accepted_as_no_ops() {
+    let v = parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "list", "--json"]),
+    )
+    .unwrap();
+    assert_eq!(
+        v,
+        Verb::PlaylistsList {
+            limit: DEFAULT_LIMIT
+        }
+    );
+}
+
+#[test]
+fn missing_verb_errors_out() {
+    assert!(parse_verb(Provider::Spotify, &args(&[])).is_err());
+}
+
+#[test]
+fn unknown_verb_errors_out() {
+    assert!(parse_verb(Provider::Spotify, &args(&["bogus"])).is_err());
+}
+
+#[test]
+fn env_constants_keep_their_names() {
+    // External tooling depends on these names — `spotifai ask` /
+    // `spotifai playlist` set them before spawning the agent.
+    assert_eq!(SPOTIFAI_PROFILE_ENV, "SPOTIFAI_PROFILE");
+    assert_eq!(SPOTIFAI_PROVIDER_ENV, "SPOTIFAI_PROVIDER");
 }
