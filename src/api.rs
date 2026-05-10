@@ -130,6 +130,12 @@ pub enum Verb {
 /// Music both cap most list endpoints at 50.
 pub const DEFAULT_LIMIT: u32 = 50;
 
+/// Spotify's `/search` endpoint caps `limit` at 10 (tightened from
+/// the historically-documented 50; values above 10 now return
+/// `HTTP 400 "Invalid limit"`). Used as both the default and the
+/// upper bound for `spotifai api search`.
+pub const SEARCH_LIMIT: u32 = 10;
+
 /// Parse the argv after `spotifai api` into a typed [`Verb`] for a
 /// given provider. Errors with a human-readable message on bad
 /// shapes; the agent's prompt is the source of truth for which
@@ -157,7 +163,7 @@ where
 {
     let mut query: Option<String> = None;
     let mut types: Vec<String> = Vec::new();
-    let mut limit: u32 = DEFAULT_LIMIT;
+    let mut limit: u32 = SEARCH_LIMIT;
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--type" | "-t" => {
@@ -169,9 +175,9 @@ where
                 let v = iter
                     .next()
                     .ok_or_else(|| anyhow!("--limit needs a value"))?;
-                limit = parse_limit(v)?;
+                limit = parse_search_limit(v)?;
             }
-            s if s.starts_with("--limit=") => limit = parse_limit(&s["--limit=".len()..])?,
+            s if s.starts_with("--limit=") => limit = parse_search_limit(&s["--limit=".len()..])?,
             "--json" | "--pretty" => {
                 // Output is always JSON; the flags are a no-op.
             }
@@ -376,8 +382,18 @@ fn parse_limit(s: &str) -> Result<u32> {
     let n: u32 = s
         .parse()
         .map_err(|_| anyhow!("--limit must be a positive integer; got `{s}`"))?;
-    if !(1..=50).contains(&n) {
-        bail!("--limit must be between 1 and 50; got {n}");
+    if !(1..=DEFAULT_LIMIT).contains(&n) {
+        bail!("--limit must be between 1 and {DEFAULT_LIMIT}; got {n}");
+    }
+    Ok(n)
+}
+
+fn parse_search_limit(s: &str) -> Result<u32> {
+    let n: u32 = s
+        .parse()
+        .map_err(|_| anyhow!("--limit must be a positive integer; got `{s}`"))?;
+    if !(1..=SEARCH_LIMIT).contains(&n) {
+        bail!("--limit must be between 1 and {SEARCH_LIMIT} for `search`; got {n}");
     }
     Ok(n)
 }

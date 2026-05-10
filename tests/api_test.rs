@@ -3,7 +3,9 @@
 //! Spotify/YouTube Music HTTP, neither of which is unit-testable;
 //! what we lock down here is the user-args parser that drives it.
 
-use spotifai::api::{DEFAULT_LIMIT, SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, Verb, parse_verb};
+use spotifai::api::{
+    DEFAULT_LIMIT, SEARCH_LIMIT, SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, Verb, parse_verb,
+};
 use spotifai::providers::Provider;
 
 fn args(raw: &[&str]) -> Vec<String> {
@@ -21,7 +23,7 @@ fn search_picks_up_query_and_defaults_to_track() {
         } => {
             assert_eq!(query, "moon river");
             assert_eq!(types, vec!["track".to_string()]);
-            assert_eq!(limit, DEFAULT_LIMIT);
+            assert_eq!(limit, SEARCH_LIMIT);
         }
         other => panic!("expected Search, got {other:?}"),
     }
