@@ -29,7 +29,7 @@ jobs:
           node-version-file: .nvmrc
       - run: cd website && npm install && npm run build
       - run: cd website && npm run verify-seo
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v3
         with:
           path: website/dist
