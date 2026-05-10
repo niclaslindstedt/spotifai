@@ -5,6 +5,7 @@
 - chore(deps): bump pinned zad to v0.4.0 (#12)
 - chore(maintenance): drift sweep across docs, manpages, prompts, website (#18)
 - chore(release): update changelog and versions for v0.0.1
+- chore(release): update changelog and versions for v0.1.0
 - chore(spec): close qualitative §7/§14/§17/§18/§21 gaps from upstream (#22)
 - chore(spec): sync OSS_SPEC to 2.6.0 and conform to §11.3 SEO mandates (#20)
 - chore: bootstrap project from oss-spec
