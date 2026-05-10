@@ -4,18 +4,23 @@
 // the SEO pipeline regresses.
 //
 // Per §11.3 we check:
-//   1. dist/sitemap.xml exists and is non-empty.
+//   1. dist/sitemap.xml exists and contains every route enumerated by
+//      `scripts/lib/routes.mjs` (static sections plus every dynamic
+//      doc/manpage page).
 //   2. dist/robots.txt exists, is non-empty, and contains an absolute
 //      Sitemap: line.
 //   3. dist/og-default.png exists.
-//   4. Every public route's HTML contains <title>, a canonical link,
-//      and at least one application/ld+json block.
+//   4. Every enumerated route's HTML contains <title>, a canonical
+//      link pointing at the absolute URL, at least one
+//      application/ld+json block, and the expected core meta tags
+//      (description, keywords, theme-color).
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { siteConfig, absoluteUrl } from "../src/seo/siteConfig.mjs";
+import { enumerateRoutes } from "./lib/routes.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(__dirname, "..", "dist");
@@ -27,18 +32,28 @@ const must = (cond, msg) => {
 
 must(fs.existsSync(dist), `dist/ does not exist: ${dist}`);
 
+const routes = enumerateRoutes();
+
 const sitemap = path.join(dist, "sitemap.xml");
 must(fs.existsSync(sitemap), "missing dist/sitemap.xml");
 if (fs.existsSync(sitemap)) {
   const xml = fs.readFileSync(sitemap, "utf8");
   must(/<urlset/.test(xml), "dist/sitemap.xml is not a urlset");
-  for (const route of siteConfig.routes) {
+  for (const route of routes) {
     const loc = absoluteUrl(route.path);
     must(
-      xml.includes(loc),
+      xml.includes(`<loc>${loc}</loc>`),
       `dist/sitemap.xml is missing <loc>${loc}</loc>`,
     );
   }
+  must(
+    /<changefreq>/.test(xml),
+    "dist/sitemap.xml is missing <changefreq> hints",
+  );
+  must(
+    /<priority>/.test(xml),
+    "dist/sitemap.xml is missing <priority> hints",
+  );
 }
 
 const robots = path.join(dist, "robots.txt");
@@ -50,6 +65,7 @@ if (fs.existsSync(robots)) {
     new RegExp(`^Sitemap:\\s*${escapeRegex(sitemapUrl)}\\s*$`, "m").test(txt),
     `dist/robots.txt is missing Sitemap: ${sitemapUrl}`,
   );
+  must(/User-agent:\s*\*/.test(txt), "dist/robots.txt is missing wildcard User-agent");
 }
 
 must(
@@ -57,7 +73,7 @@ must(
   "missing dist/og-default.png (1200x630 OG card)",
 );
 
-for (const route of siteConfig.routes) {
+for (const route of routes) {
   const htmlPath = routeHtmlPath(route.path);
   must(
     fs.existsSync(htmlPath),
@@ -79,6 +95,18 @@ for (const route of siteConfig.routes) {
     ),
     `${htmlPath} missing application/ld+json script`,
   );
+  must(
+    /<meta\s+name=["']description["']/i.test(html),
+    `${htmlPath} missing meta description`,
+  );
+  must(
+    /<meta\s+name=["']theme-color["']/i.test(html),
+    `${htmlPath} missing meta theme-color`,
+  );
+  must(
+    /<meta\s+property=["']og:image["']/i.test(html),
+    `${htmlPath} missing og:image`,
+  );
 }
 
 if (failures.length) {
@@ -86,7 +114,7 @@ if (failures.length) {
   for (const f of failures) console.error("  -", f);
   process.exit(1);
 }
-console.log("verify-seo: OK");
+console.log(`verify-seo: OK (${routes.length} routes verified)`);
 
 function routeHtmlPath(routePath) {
   if (routePath === "/") return path.join(dist, "index.html");

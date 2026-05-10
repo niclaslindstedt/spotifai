@@ -4,18 +4,26 @@
 // client-side `<head>` mutations, so the website needs a real HTML
 // file per public route — same hydration root as `dist/index.html`,
 // but with a route-specific `<head>` block. We do that by reading the
-// just-built `dist/index.html`, re-running the same SEO transform
-// vite uses at dev/build time, and writing the result to
-// `dist/<route>/index.html` for every route in `siteConfig.routes`
-// other than `/`. We also emit `dist/404.html` (a copy of `/`) so
-// GitHub Pages' SPA fallback hands unknown URLs back to the React
-// router with a sensible head.
+// just-built `dist/index.html`, re-running the same `renderHead`
+// helper that vite uses for the canonical entry, and writing the
+// result to `dist/<route>/index.html` for every route enumerated by
+// `scripts/lib/routes.mjs` other than `/`. That set includes both the
+// hand-curated `siteConfig.routes` (`/docs`, `/manual`) and every
+// dynamic doc/manpage page (`/docs/<slug>`, `/manual/<slug>`) so
+// Googlebot indexes each piece of content as its own URL with its own
+// title / description / breadcrumb.
+//
+// We also emit `dist/404.html` (a copy of `/`) so GitHub Pages' SPA
+// fallback hands unknown URLs back to the React router with a sensible
+// head.
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { siteConfig, absoluteUrl } from "../src/seo/siteConfig.mjs";
+import { siteConfig } from "../src/seo/siteConfig.mjs";
+import { enumerateRoutes } from "./lib/routes.mjs";
+import { renderHead } from "./lib/render-head.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const websiteRoot = path.resolve(__dirname, "..");
@@ -33,14 +41,13 @@ const baseShell = fs.readFileSync(indexPath, "utf8");
 
 // Vite has already rewritten <!-- SEO_HEAD --> for the `/` route on
 // the canonical index. To produce per-route variants we rip the
-// existing `<head>` block back out and replace it with the route-
-// specific equivalent. The `<title>` plus everything between it and
-// the closing `</head>` is what vite's `seoHeadPlugin` injected, so
-// dropping that range and inserting a fresh block keeps every other
-// `<head>` element (charset, viewport, asset links injected by vite)
-// intact.
+// existing SEO block back out and replace it with the route-specific
+// equivalent. The block runs from the `<title>` vite injected through
+// the *last* `application/ld+json` script. Capturing the whole span
+// in one greedy match keeps every other `<head>` element (charset,
+// viewport, asset links injected by vite) intact.
 const headInjectionRe =
-  /(<title>[\s\S]*?<\/title>[\s\S]*?<script type="application\/ld\+json">[\s\S]*?<\/script>)/;
+  /<title>[\s\S]*?<\/title>[\s\S]*?<script type="application\/ld\+json">[\s\S]*?<\/script>(?:\s*<script type="application\/ld\+json">[\s\S]*?<\/script>)*/;
 
 if (!headInjectionRe.test(baseShell)) {
   console.error(
@@ -49,10 +56,21 @@ if (!headInjectionRe.test(baseShell)) {
   process.exit(1);
 }
 
+// Vite's HTML transform rewrites root-relative `href`s on the
+// canonical `dist/index.html` according to `siteConfig.basePath`.
+// Splicing happens after that pass, so we apply the same prefix
+// ourselves for the per-route shells to point at the right URL
+// (a no-op when the site is served from a domain root).
+const sitemapHref =
+  siteConfig.basePath.replace(/\/+$/, "") +
+  "/" +
+  siteConfig.paths.sitemap.replace(/^\/+/, "");
+
+const routes = enumerateRoutes();
 let routesWritten = 0;
-for (const route of siteConfig.routes) {
+for (const route of routes) {
   if (route.path === "/") continue;
-  const html = baseShell.replace(headInjectionRe, renderHead(route));
+  const html = baseShell.replace(headInjectionRe, renderHead(route, { sitemapHref }));
   const outPath = routeHtmlPath(route.path);
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, html);
@@ -72,76 +90,8 @@ console.log("wrote", path.relative(process.cwd(), fallbackPath), "(SPA fallback)
 
 console.log(`splice-routes: ${routesWritten} per-route HTML shell(s) written`);
 
-// Mirrors the head block produced by `vite.config.mjs`'s
-// `seoHeadPlugin`. Keep this in sync with that renderer — the SEO
-// copy itself comes from `siteConfig`, so the rendering logic is the
-// only thing that has to be duplicated, and the sole consumer is this
-// build-time pass.
-function renderHead(route) {
-  const pageUrl = absoluteUrl(route.path);
-  const ogImage = absoluteUrl(siteConfig.ogImage.path);
-  const title = route.title || siteConfig.tagline;
-  const description = route.description || siteConfig.description;
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": route.schemaType || "WebPage",
-    "@id": pageUrl,
-    name: siteConfig.name,
-    description,
-    url: pageUrl,
-    image: ogImage,
-    applicationCategory: "DeveloperApplication",
-    operatingSystem: "Linux, macOS, Windows",
-    author: { "@type": "Person", name: siteConfig.author },
-    keywords: siteConfig.keywords.join(", "),
-  };
-  // Vite's HTML transform rewrites root-relative `href`s on the
-  // canonical `dist/index.html` according to `siteConfig.basePath`.
-  // Splicing happens after that pass, so we apply the same prefix
-  // ourselves for the per-route shells to point at the right URL
-  // (a no-op when the site is served from a domain root).
-  const sitemapHref =
-    siteConfig.basePath.replace(/\/+$/, "") +
-    "/" +
-    siteConfig.paths.sitemap.replace(/^\/+/, "");
-  const lines = [
-    `<title>${escapeHtml(title)}</title>`,
-    `<meta name="description" content="${escapeAttr(description)}" />`,
-    `<meta name="keywords" content="${escapeAttr(siteConfig.keywords.join(", "))}" />`,
-    `<meta name="robots" content="index,follow,max-image-preview:large" />`,
-    `<link rel="canonical" href="${escapeAttr(pageUrl)}" />`,
-    `<link rel="sitemap" type="application/xml" href="${escapeAttr(sitemapHref)}" />`,
-    `<meta property="og:site_name" content="${escapeAttr(siteConfig.name)}" />`,
-    `<meta property="og:type" content="website" />`,
-    `<meta property="og:title" content="${escapeAttr(title)}" />`,
-    `<meta property="og:description" content="${escapeAttr(description)}" />`,
-    `<meta property="og:url" content="${escapeAttr(pageUrl)}" />`,
-    `<meta property="og:image" content="${escapeAttr(ogImage)}" />`,
-    `<meta property="og:image:width" content="${siteConfig.ogImage.width}" />`,
-    `<meta property="og:image:height" content="${siteConfig.ogImage.height}" />`,
-    `<meta property="og:image:alt" content="${escapeAttr(siteConfig.ogImage.alt)}" />`,
-    `<meta name="twitter:card" content="summary_large_image" />`,
-    `<meta name="twitter:title" content="${escapeAttr(title)}" />`,
-    `<meta name="twitter:description" content="${escapeAttr(description)}" />`,
-    `<meta name="twitter:image" content="${escapeAttr(ogImage)}" />`,
-    `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`,
-  ];
-  return lines.join("\n    ");
-}
-
 function routeHtmlPath(routePath) {
   if (routePath === "/") return path.join(distDir, "index.html");
   const trimmed = routePath.replace(/^\/+|\/+$/g, "");
   return path.join(distDir, trimmed, "index.html");
-}
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function escapeAttr(s) {
-  return escapeHtml(s).replace(/"/g, "&quot;");
 }
