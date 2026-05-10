@@ -6,6 +6,8 @@
 // import the same module.
 
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 import { siteConfig, absoluteUrl } from "./src/seo/siteConfig.mjs";
 
@@ -92,5 +94,9 @@ function escapeAttr(s) {
 }
 
 export default defineConfig({
-  plugins: [seoHeadPlugin()],
+  base: siteConfig.basePath,
+  plugins: [tailwindcss(), react(), seoHeadPlugin()],
+  build: {
+    outDir: "dist",
+  },
 });

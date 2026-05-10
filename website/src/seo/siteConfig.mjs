@@ -14,18 +14,23 @@ export const siteConfig = {
   // Canonical site URL. Used for sitemap `<loc>`, `<link rel=canonical>`,
   // Open Graph `og:url`, and JSON-LD `@id`. Trailing slash matters.
   url: "https://niclaslindstedt.github.io/spotifai/",
+  // Path the site is served from on the host. GitHub Pages serves
+  // project sites under `/<repo>/`, so the React bundle, the router,
+  // and asset URLs all need this prefix.
+  basePath: "/spotifai/",
   author: "Niclas Lindstedt",
   twitter: "@niclaslindstedt",
   language: "en",
   keywords: [
     "spotify",
+    "youtube music",
     "cli",
     "rust",
     "llm",
     "agent",
     "music",
     "playlist",
-    "youtube music",
+    "natural language",
   ],
   ogImage: {
     path: "/og-default.png",
@@ -41,7 +46,8 @@ export const siteConfig = {
     robots: "/robots.txt",
   },
   // Public routes the site exposes. Each entry becomes a sitemap row,
-  // an HTML transform target, and a JSON-LD block.
+  // a per-route HTML splice target (see `scripts/splice-routes.mjs`),
+  // and a JSON-LD block.
   routes: [
     {
       path: "/",
@@ -49,6 +55,20 @@ export const siteConfig = {
       description:
         "A Rust CLI for managing your music library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify / YouTube Music integration).",
       schemaType: "SoftwareApplication",
+    },
+    {
+      path: "/docs",
+      title: "Documentation — spotifai",
+      description:
+        "Hosted reference for spotifai: getting started, configuration keys, architecture, the export/import schema, and troubleshooting.",
+      schemaType: "TechArticle",
+    },
+    {
+      path: "/manual",
+      title: "Manual — spotifai",
+      description:
+        "Embedded manpages for every spotifai subcommand — install, auth, ask, playlist, api, export, import — rendered for the web.",
+      schemaType: "TechArticle",
     },
   ],
 };
