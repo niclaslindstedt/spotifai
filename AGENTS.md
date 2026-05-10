@@ -120,6 +120,17 @@ public API | `docs/`, `README.md` Quick start
 CLI flags  | `man/<cmd>.md`, `README.md`
 config keys| `docs/configuration.md`
 
+## Website staleness policy
+
+Per §11.2 of `OSS_SPEC.md`, the marketing website under `website/` must be
+regenerated whenever source-derived content changes — README copy, feature
+descriptions, version strings, integration matrices, configuration keys,
+and anything else extracted at build time from `README.md`, `docs/`, or
+`OSS_SPEC.md`. Do not hand-edit generated content; update the source of
+truth and let the build pipeline (and the `update-website` skill, see
+below) refresh the site. The `pages.yml` workflow rebuilds and redeploys
+on every push to `main`.
+
 ## Parity / cross-cutting rules
 
 - **CLI flags ↔ manpage**: every flag added to `src/main.rs` must appear in `man/main.md` with the same name, type, and default. Run `update-manpages` after any flag change.
@@ -132,10 +143,13 @@ Per §21 of `OSS_SPEC.md`, this repo ships agent skills for keeping drift-prone 
 
 | Skill | When to run |
 |---|---|
-| `maintenance`    | When several artifacts have likely drifted at once — umbrella skill that runs every `update-*` skill in the correct order. |
-| `update-docs`    | After any change to the public API, configuration keys, or error messages. |
-| `update-readme`  | After any change that alters user-visible behavior, commands, or install instructions. |
+| `maintenance`     | When several artifacts have likely drifted at once — umbrella skill that runs every `update-*` skill in the correct order. |
+| `sync-oss-spec`   | When the repo may have drifted from `OSS_SPEC.md`. Fetches the latest spec from GitHub, walks its mandates, and fixes each violation. Run as the final step of a drift sweep to catch residual gaps the per-artifact skills did not touch. |
+| `update-docs`     | After any change to the public API, configuration keys, or error messages. |
+| `update-readme`   | After any change that alters user-visible behavior, commands, or install instructions. |
 | `update-manpages` | After any change to CLI flags, subcommands, or their help text. |
-| `update-prompts` | After any change to an LLM prompt's source of truth (embedded docs, rendering-context keys, JSON-schema enums, validation rules). |
+| `update-prompts`  | After any change to an LLM prompt's source of truth (embedded docs, rendering-context keys, JSON-schema enums, validation rules). |
+| `update-website`  | After any change to README copy, `docs/`, or `OSS_SPEC.md` so the marketing site under `website/` regenerates from the new source data. |
+| `commit`          | At the end of a feature or fix to verify quality gates, commit, push, and open or update a PR with a conventional-commit-formatted title. |
 
 Each skill has a `SKILL.md` (the playbook) and a `.last-updated` file (the baseline commit hash). Run a skill by loading its `SKILL.md` and following the discovery process and update checklist. The skill rewrites `.last-updated` at the end of a successful run, and improves itself in place when it discovers new mapping entries. The `maintenance` skill owns a **Registry** table listing every `update-*` skill — add a row whenever you create a new sync skill.

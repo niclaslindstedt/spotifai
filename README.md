@@ -173,6 +173,12 @@ _Common failure modes and fixes._
 - [Architecture](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
+## Community
+
+- **Bugs and feature requests** — [GitHub Issues](https://github.com/niclaslindstedt/spotifai/issues)
+- **Questions and discussion** — [GitHub Discussions](https://github.com/niclaslindstedt/spotifai/discussions)
+- **Security reports** — see [SECURITY.md](SECURITY.md) (private channel — do not file public issues)
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -15,6 +15,10 @@ This is the umbrella skill for spotifai, mandated by §21.6 of `OSS_SPEC.md`. It
 
 Do **not** use this skill for a targeted fix — if you know exactly which artifact is stale, call the corresponding `update-*` skill directly.
 
+## Tracking mechanism
+
+`.agent/skills/maintenance/.last-updated` records the git commit hash of the last successful drift sweep. Empty means "never run" — fall back to the repo's initial commit (`git rev-list --max-parents=0 HEAD`) as the baseline. Each individual `update-*` skill maintains its own `.last-updated` independently; this file's timestamp captures the last time the whole sweep ran.
+
 ## Registry
 
 The registry is the single source of truth for which sync skills exist in this repo. Every `update-*` directory under `.agent/skills/` must appear here exactly once. New projects start with the entries below; add rows whenever you create a new sync skill.

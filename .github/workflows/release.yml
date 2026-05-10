@@ -31,8 +31,10 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    # Every `uses:` line below is pinned by commit SHA per OSS_SPEC §14.
+    # Adjacent comments record the human-readable version for review.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
       - name: Resolve tag
@@ -51,7 +53,7 @@ jobs:
           git tag -f "${{ steps.tag.outputs.tag }}" HEAD
           git push origin HEAD:main
           git push origin "${{ steps.tag.outputs.tag }}" --force
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@98e1b82157cd469e843cb7f524c1313b4ad9492c # 1.88.0
       - run: cargo build --release
       - run: cargo test
       # Publishing MUST use crates.io trusted publishing (OIDC).
@@ -62,7 +64,7 @@ jobs:
       #   env:
       #     CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
       - name: GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
