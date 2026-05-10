@@ -18,6 +18,9 @@ coverage/
 website/node_modules/
 website/dist/
 website/src/generated/
+website/public/og-default.png
+website/public/sitemap.xml
+website/public/robots.txt
 
 # Generated docs
 docs/_build/
