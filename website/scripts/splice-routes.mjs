@@ -96,10 +96,10 @@ function renderHead(route) {
     keywords: siteConfig.keywords.join(", "),
   };
   // Vite's HTML transform rewrites root-relative `href`s on the
-  // canonical `dist/index.html` (so e.g. `/sitemap.xml` becomes
-  // `/spotifai/sitemap.xml` under a configured base). Splicing
-  // happens after that pass, so we have to apply the same prefix
-  // ourselves for the per-route shells to point at the right URL.
+  // canonical `dist/index.html` according to `siteConfig.basePath`.
+  // Splicing happens after that pass, so we apply the same prefix
+  // ourselves for the per-route shells to point at the right URL
+  // (a no-op when the site is served from a domain root).
   const sitemapHref =
     siteConfig.basePath.replace(/\/+$/, "") +
     "/" +
