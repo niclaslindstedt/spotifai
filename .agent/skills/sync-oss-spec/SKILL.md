@@ -161,7 +161,17 @@ fi
    done
    ```
 
-3. For each failure, re-read the relevant section of `$SPEC_TMP` so the fix matches the spec's intent rather than silencing the symptom:
+3. **Nonbinary fallback.** The upstream `oss-spec` repo ships a language-agnostic bash mirror at `scripts/validate.sh` that performs the same §19 structural checks as the inline loops in step 2. Spotifai does not vendor the `oss-spec` binary, so the script is our "binary backup" — use it whenever you want a faster, drift-resistant substitute for walking the loops by hand. It is the same mirror the upstream skill calls out under its own "Nonbinary fallback" heading.
+
+   ```sh
+   # Run the upstream script in-place, no checkout needed:
+   curl -fsSL https://raw.githubusercontent.com/niclaslindstedt/oss-spec/main/scripts/validate.sh \
+     | bash -s -- .
+   ```
+
+   Treat any printed violation as a failure to remediate via the mapping table below. The inline checks in step 2 remain the standalone source of truth — fall back to them if the script is unreachable (offline, GitHub down) or its output looks suspect. Either path satisfies this skill; never silence a violation just because one path is quieter than the other.
+
+4. For each failure, re-read the relevant section of `$SPEC_TMP` so the fix matches the spec's intent rather than silencing the symptom:
 
    ```sh
    # Jump to a section, e.g. §21, in the fetched spec.
@@ -200,9 +210,9 @@ fi
 - [ ] Fetch `$SPEC_URL` into `$SPEC_TMP`; abort on failure
 - [ ] Compare `$SPEC_TMP` with local `OSS_SPEC.md`; overwrite the local copy on drift
 - [ ] Read the baseline from `.last-updated` and diff the working tree
-- [ ] Walk every structural check in "Discovery process" step 2 and collect failures
+- [ ] Walk every structural check in "Discovery process" step 2 and collect failures (or run the upstream `validate.sh` nonbinary fallback in step 3 as a faster substitute)
 - [ ] For each failure, read the matching section of `$SPEC_TMP` and apply the fix
-- [ ] Re-run every shell check from step 2 — it must produce no output
+- [ ] Re-run every shell check from step 2 (or the step-3 fallback) — it must produce no output / exit 0
 - [ ] Run `make fmt`, `make lint`, `make test`
 - [ ] Write the new baseline:
 
@@ -210,7 +220,7 @@ fi
 
 ## Verification
 
-1. Every shell check in "Discovery process" step 2 prints nothing.
+1. Every shell check in "Discovery process" step 2 prints nothing (or the step-3 nonbinary fallback `validate.sh` exits 0).
 2. `diff OSS_SPEC.md "$SPEC_TMP"` is empty.
 3. `make test` passes.
 4. Every failure seen before this run has a matching edit in the diff — no violation was silenced by loosening a check.
