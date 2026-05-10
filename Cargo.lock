@@ -3980,9 +3980,9 @@ dependencies = [
 
 [[package]]
 name = "zad"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff9735e5871ca94c3efbcc1585e11ababc3b5afb9ba852b404b0804e5920746e"
+checksum = "ff1e498305e064a2bc05bb8d570375c77959fad710a679940f16d8e743aef858"
 dependencies = [
  "async-trait",
  "base64",
