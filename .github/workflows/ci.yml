@@ -69,8 +69,10 @@ jobs:
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-0.21.2-${{ runner.os }}
+          key: cargo-audit-0.22.1-${{ runner.os }}
       - name: Install cargo-audit
         if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
-        run: cargo install --locked --version 0.21.2 cargo-audit
+        # ≥ 0.22 is required to parse advisories that use CVSS v4.0
+        # (e.g. RUSTSEC-2026-0073). 0.21.x fails to load the database.
+        run: cargo install --locked --version 0.22.1 cargo-audit
       - run: cargo audit
