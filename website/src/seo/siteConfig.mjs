@@ -13,11 +13,11 @@ export const siteConfig = {
     "A Rust CLI for managing your music library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify / YouTube Music integration).",
   // Canonical site URL. Used for sitemap `<loc>`, `<link rel=canonical>`,
   // Open Graph `og:url`, and JSON-LD `@id`. Trailing slash matters.
-  url: "https://niclaslindstedt.github.io/spotifai/",
-  // Path the site is served from on the host. GitHub Pages serves
-  // project sites under `/<repo>/`, so the React bundle, the router,
-  // and asset URLs all need this prefix.
-  basePath: "/spotifai/",
+  url: "https://spotifai.niclaslindstedt.se/",
+  // Path the site is served from on the host. The site lives at the
+  // root of a custom domain (see `public/CNAME`), so the React bundle,
+  // the router, and asset URLs are all root-relative.
+  basePath: "/",
   author: "Niclas Lindstedt",
   twitter: "@niclaslindstedt",
   language: "en",
