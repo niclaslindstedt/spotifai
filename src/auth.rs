@@ -22,10 +22,14 @@
 //! on every call.
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use zad::oauth::{LoopbackConfig, RedirectScheme, TokenSet, run_loopback_flow};
+use zad::oauth::{
+    KeychainRefreshStore, LoopbackConfig, RedirectScheme, TokenSet, run_loopback_flow,
+};
 use zad::secrets::{self, Scope};
 use zad::service::spotify::{self as zad_spotify, SpotifyHttp};
 use zad::service::ymusic::{self as zad_ymusic, YmusicHttp};
@@ -180,8 +184,22 @@ async fn run_spotify(opts: AuthOptions) -> Result<()> {
     output::status("credentials written to OS keychain");
 
     // Probe /me to capture the Spotify user id used by
-    // create_playlist.
-    let probe = SpotifyHttp::unscoped(client_id, refresh);
+    // create_playlist. Spotify's PKCE flow rotates the refresh token
+    // on every /api/token call, so the probe's refresh would invalidate
+    // the just-stored token unless we hand the client the same
+    // KeychainRefreshStore the runtime path uses — that way the
+    // rotated value lands in the keychain before `auth` returns.
+    let probe = SpotifyHttp::with_store(
+        client_id,
+        refresh,
+        BTreeSet::new(),
+        PathBuf::new(),
+        Some(Arc::new(KeychainRefreshStore::new(secrets::account(
+            "spotify",
+            "refresh",
+            Scope::Global,
+        )))),
+    );
     match probe.me().await {
         Ok(me) => {
             let identity = SelfIdentity {
@@ -262,7 +280,22 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
     output::status("credentials written to OS keychain");
 
     // Capture the channel id and email via userinfo + my_channel.
-    let probe = YmusicHttp::unscoped(client_id, client_secret, refresh);
+    // Google rarely rotates refresh tokens but the probe's `access_token`
+    // path persists rotations only if a store is wired up — match the
+    // Spotify branch so the keychain stays consistent if Google ever
+    // does rotate.
+    let probe = YmusicHttp::with_store(
+        client_id,
+        client_secret,
+        refresh,
+        BTreeSet::new(),
+        PathBuf::new(),
+        Some(Arc::new(KeychainRefreshStore::new(secrets::account(
+            "ymusic",
+            "refresh",
+            Scope::Global,
+        )))),
+    );
     let mut identity = SelfIdentity::default();
     match probe.userinfo().await {
         Ok(info) => {
