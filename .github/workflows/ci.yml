@@ -49,10 +49,17 @@ jobs:
   # Software composition analysis (OSS_SPEC §14). Fails the build on
   # any open RUSTSEC advisory so a vulnerable transitive dependency
   # cannot ship to crates.io. Runs on every PR and every push to main.
+  #
+  # Uses `cargo audit` directly (installed via taiki-e/install-action
+  # for prebuilt-binary speed) rather than the rustsec/audit-check
+  # action, so that the project-local `.cargo/audit.toml` allowlist
+  # — including its inline rationale comments for each ignored
+  # advisory — is the single source of truth for what we suppress.
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      - uses: taiki-e/install-action@899b013517f9e7774591216672bf75a46bb9a481 # v2.9.4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          tool: cargo-audit
+      - run: cargo audit

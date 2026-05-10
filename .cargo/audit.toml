@@ -1,0 +1,45 @@
+# cargo-audit ignore list, consumed by the `audit` job in
+# `.github/workflows/ci.yml` (OSS_SPEC §14).
+#
+# Every entry below MUST link to:
+#   * the upstream advisory (RUSTSEC URL)
+#   * the dead-code path that pins the vulnerable version
+#   * the upstream issue tracking the bump (or, if missing, an
+#     explicit TODO to file one)
+#
+# Re-evaluate this file every time `cargo update` runs in case the
+# transitive bump happened — `cargo audit` will warn about ignored
+# advisories that no longer match anything.
+
+[advisories]
+ignore = [
+    # All four advisories are in `rustls-webpki 0.102.8`, pulled in
+    # only via:
+    #   serenity 0.12.5
+    #     → tokio-tungstenite 0.21.0
+    #       → tungstenite 0.21.0
+    #         → rustls 0.22.4
+    #           → rustls-webpki 0.102.8
+    # …which sits inside `zad 0.6.5` and reaches spotifai purely as a
+    # transitive crate. spotifai's own HTTPS to Spotify / YouTube
+    # Music uses `rustls 0.23.40 + rustls-webpki 0.103.13` (already
+    # in `Cargo.lock`); the vulnerable code path is never invoked
+    # from any spotifai entry point and `grep -rn serenity src/`
+    # is empty. The bump is blocked on serenity moving to
+    # tokio-tungstenite ≥ 0.24 (which uses rustls 0.23).
+    #
+    # Track upstream:
+    #   serenity-rs/serenity#2837 (rustls 0.23 migration)
+    #   zad: needs to bump serenity once the above lands.
+    "RUSTSEC-2026-0049",  # rustls-webpki: CRLs not authoritative for Distribution Point
+    "RUSTSEC-2026-0098",  # rustls-webpki: name constraints for URI names incorrectly accepted
+    "RUSTSEC-2026-0099",  # rustls-webpki: wildcard name constraints accepted
+    "RUSTSEC-2026-0104",  # rustls-webpki: reachable panic in CRL parsing
+
+    # rustls-pemfile 2.2.0 is unmaintained; pulled in via
+    #   axum-server 0.7.3 → zag-serve 0.17.0 → zag.
+    # spotifai never invokes zag::serve (no spotifai source file
+    # imports it). When zag-serve drops or replaces axum-server,
+    # this entry can go.
+    "RUSTSEC-2025-0134",  # rustls-pemfile: unmaintained
+]
