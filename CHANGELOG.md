@@ -9,6 +9,7 @@
 - chore(spec): close qualitative §7/§14/§17/§18/§21 gaps from upstream (#22)
 - chore(spec): sync OSS_SPEC to 2.6.0 and conform to §11.3 SEO mandates (#20)
 - chore: bootstrap project from oss-spec
+- ci(release): publish to crates.io with OIDC trusted publishing (#39)
 - docs(skill): add nonbinary fallback to sync-oss-spec (#21)
 - feat(auth): print requested and granted Spotify scopes (#38)
 - feat(auth): show first-time setup hint with direct dashboard URLs
@@ -28,6 +29,7 @@
 - fix(api): cap search limit at 10 (#37)
 - fix(auth): persist rotated Spotify refresh tokens via zad 0.6.5 (#19)
 - fix(auth): persist rotated refresh tokens during /me probe (#36)
+- fix(deps): bump zad to 0.7.1 (#40)
 - fix(install): use rustls-tls-native-roots for HTTPS downloads (#8)
 - fix(website): serve from spotifai.niclaslindstedt.se root (#34)
 
