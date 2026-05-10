@@ -1,13 +1,16 @@
 // Generates the SEO outputs mandated by OSS_SPEC §11.3:
 //
 //   - website/public/og-default.png  (1200x630)
-//   - website/public/sitemap.xml     (one row per route in siteConfig)
+//   - website/public/sitemap.xml     (one row per crawlable route —
+//                                     including every /docs/<slug> and
+//                                     /manual/<slug> under the SPA)
 //   - website/public/robots.txt      (with absolute Sitemap: line)
 //
-// All three derive from `website/src/seo/siteConfig.mjs`. They are
+// All three derive from `website/src/seo/siteConfig.mjs` plus the
+// shared route enumerator under `scripts/lib/routes.mjs`. They are
 // written into `public/` so Vite copies them into `dist/` verbatim.
-// `<lastmod>` for each route is the working-tree mtime of the route's
-// best-matching source file (HTML template for "/"), per §11.3's
+// `<lastmod>` comes from the per-route source file's git history (or
+// its working-tree mtime when git is unavailable), per §11.3's
 // "real source data, never a build-time now()" rule.
 
 import fs from "node:fs";
@@ -15,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { siteConfig, absoluteUrl } from "../src/seo/siteConfig.mjs";
+import { enumerateRoutes, dateOnly } from "./lib/routes.mjs";
 import { encodePng, parseHexColor } from "./png.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -67,30 +71,58 @@ function writeOgImage() {
 }
 
 function writeSitemap() {
-  const indexHtml = path.join(websiteRoot, "index.html");
-  const fallbackMtime = fs.existsSync(indexHtml)
-    ? fs.statSync(indexHtml).mtime
-    : new Date();
-  const rows = siteConfig.routes
+  const routes = enumerateRoutes();
+  const rows = routes
     .map((route) => {
       const loc = absoluteUrl(route.path);
-      const lastmod = (route.lastmod
-        ? new Date(route.lastmod)
-        : fallbackMtime
-      )
-        .toISOString()
-        .slice(0, 10);
-      return `  <url>\n    <loc>${escapeXml(loc)}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`;
+      const lastmod = dateOnly(route.lastmod);
+      return [
+        "  <url>",
+        `    <loc>${escapeXml(loc)}</loc>`,
+        `    <lastmod>${lastmod}</lastmod>`,
+        `    <changefreq>${route.changefreq}</changefreq>`,
+        `    <priority>${route.priority.toFixed(1)}</priority>`,
+        "  </url>",
+      ].join("\n");
     })
     .join("\n");
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows}\n</urlset>\n`;
+  const xml =
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    `${rows}\n` +
+    `</urlset>\n`;
   fs.writeFileSync(path.join(publicDir, "sitemap.xml"), xml);
 }
 
 function writeRobots() {
   const sitemap = absoluteUrl(siteConfig.paths.sitemap);
-  const txt = `User-agent: *\nAllow: /\n\nSitemap: ${sitemap}\n`;
-  fs.writeFileSync(path.join(publicDir, "robots.txt"), txt);
+  // Generic open policy, then explicit allow-everything stanzas for
+  // the major search-engine crawlers so their fetchers can prove their
+  // user-agent matched a rule. Sitemap line is global per RFC.
+  const lines = [
+    "# Robots policy for spotifai. See https://www.robotstxt.org/.",
+    "User-agent: *",
+    "Allow: /",
+    "",
+    "User-agent: Googlebot",
+    "Allow: /",
+    "",
+    "User-agent: Googlebot-Image",
+    "Allow: /",
+    "",
+    "User-agent: Bingbot",
+    "Allow: /",
+    "",
+    "User-agent: DuckDuckBot",
+    "Allow: /",
+    "",
+    "User-agent: Applebot",
+    "Allow: /",
+    "",
+    `Sitemap: ${sitemap}`,
+    "",
+  ];
+  fs.writeFileSync(path.join(publicDir, "robots.txt"), lines.join("\n"));
 }
 
 function escapeXml(s) {

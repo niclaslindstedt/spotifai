@@ -19,18 +19,40 @@ export const siteConfig = {
   // the router, and asset URLs are all root-relative.
   basePath: "/",
   author: "Niclas Lindstedt",
+  authorUrl: "https://niclaslindstedt.se/",
   twitter: "@niclaslindstedt",
   language: "en",
+  locale: "en_US",
+  themeColor: "#1DB954",
+  repository: "https://github.com/niclaslindstedt/spotifai",
+  // Extra keywords beyond the obvious ones widen the SERP surface for
+  // long-tail queries ("spotify cli", "manage playlists from terminal",
+  // etc.) without diluting the page's core relevance.
   keywords: [
     "spotify",
+    "spotify cli",
+    "spotify command line",
+    "spotify terminal",
+    "spotify automation",
     "youtube music",
+    "youtube music cli",
     "cli",
     "rust",
+    "rust cli",
     "llm",
-    "agent",
+    "llm agent",
+    "ai agent",
+    "natural language interface",
     "music",
+    "music library",
     "playlist",
+    "playlist manager",
+    "playlist automation",
     "natural language",
+    "open source",
+    "spotifai",
+    "zag",
+    "zad",
   ],
   ogImage: {
     path: "/og-default.png",
@@ -62,6 +84,10 @@ export const siteConfig = {
       description:
         "Hosted reference for spotifai: getting started, configuration keys, architecture, the export/import schema, and troubleshooting.",
       schemaType: "TechArticle",
+      breadcrumb: [
+        { name: "Home", path: "/" },
+        { name: "Documentation", path: "/docs" },
+      ],
     },
     {
       path: "/manual",
@@ -69,6 +95,10 @@ export const siteConfig = {
       description:
         "Embedded manpages for every spotifai subcommand — install, auth, ask, playlist, api, export, import — rendered for the web.",
       schemaType: "TechArticle",
+      breadcrumb: [
+        { name: "Home", path: "/" },
+        { name: "Manual", path: "/manual" },
+      ],
     },
   ],
 };
