@@ -77,16 +77,28 @@ fi
      [ -f ".github/workflows/$w" ] || echo "MISSING-WORKFLOW: $w"
    done
 
-   # §10.3 — no floating toolchain specifiers in CI workflows
-   grep -nE '(rust-toolchain@|(python|node|go)-version:)[^\n]*\b(stable|latest|lts|\*)\b' \
-        .github/workflows/ci.yml .github/workflows/release.yml 2>/dev/null
+   # §10.3 — no floating toolchain specifiers in *any* CI workflow
+   # (not just ci.yml/release.yml — pages.yml, version-bump.yml, and
+   # bespoke workflows count too).
+   grep -REn '(rust-toolchain@|(python|node|go)-version:)[^\n]*\b(stable|latest|lts(/[*0-9]+)?|\*)\b' \
+        .github/workflows/ 2>/dev/null
 
-   # §10.5 — local pin file matches CI. Presence-only check; cross-check
-   # values by eye against ci.yml.
-   [ -f Cargo.toml ]       && { [ -f rust-toolchain.toml ] || echo "MISSING: rust-toolchain.toml"; }
-   [ -f pyproject.toml ] || [ -f setup.py ] && { [ -f .python-version ] || echo "MISSING: .python-version"; }
-   [ -f package.json ]     && { [ -f .nvmrc ] || echo "MISSING: .nvmrc"; }
-   [ -f go.mod ]           && { grep -q '^toolchain ' go.mod || echo "MISSING: go.mod toolchain directive"; }
+   # §10.5 — local pin file matches CI. Detects each language at *any*
+   # depth — the repo may keep its JS site under website/, its Python
+   # tooling under tools/, etc. — so the check fires whenever CI needs
+   # the toolchain. Presence-only; cross-check values by eye against
+   # the CI workflows and pin files.
+   { [ -f Cargo.toml ] || find . -path ./target -prune -o -name 'Cargo.toml' -print 2>/dev/null | grep -q .; } \
+     && { [ -f rust-toolchain.toml ] || echo "MISSING: rust-toolchain.toml"; }
+   { [ -f pyproject.toml ] || [ -f setup.py ] || find . -path ./.venv -prune -o \( -name 'pyproject.toml' -o -name 'setup.py' \) -print 2>/dev/null | grep -q .; } \
+     && { [ -f .python-version ] || echo "MISSING: .python-version"; }
+   { [ -f package.json ] || find . -path '*/node_modules' -prune -o -name 'package.json' -print 2>/dev/null | grep -q .; } \
+     && { [ -f .nvmrc ] || echo "MISSING: .nvmrc"; }
+   if [ -f go.mod ] || find . -name 'go.mod' -print 2>/dev/null | grep -q .; then
+     for gomod in $(find . -name 'go.mod' 2>/dev/null); do
+       grep -q '^toolchain ' "$gomod" || echo "MISSING: $gomod toolchain directive"
+     done
+   fi
 
    # §13.5 — every prompts/<name>/ must have a versioned <major>_<minor>_<patch>.md
    for d in prompts/*/; do
@@ -103,6 +115,28 @@ fi
             .github/dependabot.yml; do
      [ -f "$f" ] || echo "MISSING: $f"
    done
+
+   # §11.3 — SEO and discoverability for the website (if present)
+   if [ -d website ]; then
+     # SSOT module — must be importable by both runtime client code
+     # and build-time generators.
+     ls website/src/seo/siteConfig.* 2>/dev/null | head -1 | grep -q . \
+       || echo "MISSING: website/src/seo/siteConfig.<ext> (§11.3 SSOT)"
+     # Build-time generator + CI verifier wired into the website
+     # build script.
+     [ -f website/scripts/build-seo.mjs ] \
+       || echo "MISSING: website/scripts/build-seo.mjs (§11.3)"
+     [ -f website/scripts/verify-seo.mjs ] \
+       || echo "MISSING: website/scripts/verify-seo.mjs (§11.3)"
+     # Required <head> hook in the served HTML shell.
+     grep -q 'SEO_HEAD' website/index.html 2>/dev/null \
+       || grep -q 'application/ld+json' website/index.html 2>/dev/null \
+       || echo "MISSING: <!-- SEO_HEAD --> placeholder (or inline JSON-LD) in website/index.html (§11.3)"
+     # CI must call verify-seo so the build job fails when SEO outputs
+     # regress.
+     grep -q 'verify-seo' .github/workflows/pages.yml 2>/dev/null \
+       || echo "MISSING: pages.yml does not run verify-seo (§11.3 CI verification)"
+   fi
 
    # §19.4 — central output module (only if the repo has src/ or lib/)
    if [ -d src ] || [ -d lib ]; then
@@ -149,6 +183,7 @@ fi
 | §10.5 missing pin file / pin ↔ CI mismatch | Add the language's repo-root pin (`rust-toolchain.toml`, `.python-version`, `.nvmrc`, or `go.mod` `toolchain` directive) and align it with `ci.yml` |
 | §11.1 missing `docs/` content | Create the topic file, then hand off to `update-docs` |
 | §11.2 website drift | Regenerate website sources, hand off to `update-website` |
+| §11.3 SEO outputs missing (sitemap.xml, robots.txt, og-default.png, JSON-LD, canonical link) | Add `website/src/seo/siteConfig.<ext>` as the single source of truth, generate `sitemap.xml` / `robots.txt` / `og-default.png` into `website/public/` from it, splice the same data into the served `<head>` (Vite plugin, Helmet, etc.), and call `verify-seo` from the `pages.yml` job |
 | §13.5 `prompts/<name>/` has no versioned file | Add `prompts/<name>/1_0_0.md` with the required YAML front matter (`name`, `description`, `version: 1.0.0`) and `## System` / `## User` sections |
 | §15 missing issue / PR templates | Create the templates under `.github/ISSUE_TEMPLATE/` or `.github/PULL_REQUEST_TEMPLATE.md` |
 | §19.4 missing central output module | Add `src/output.<ext>` (or `lib/output.<ext>`) with semantic helpers (`status`, `info`, `warn`, `error`, `header`) and route existing prints through it |

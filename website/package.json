@@ -2,11 +2,15 @@
   "name": "spotifai-website",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "extract": "node scripts/extract-source-data.mjs",
+    "extract": "node scripts/extract-source-data.mjs && node scripts/build-seo.mjs",
     "dev": "npm run extract && vite",
     "build": "npm run extract && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify-seo": "node scripts/verify-seo.mjs"
   },
   "devDependencies": {
     "vite": "^5"

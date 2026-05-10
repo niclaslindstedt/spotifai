@@ -5,7 +5,7 @@ description: "Use when the marketing website may be stale. Discovers commits sin
 
 # Updating the Website
 
-**Governing spec sections:** §11.2 (`website/` — source-derived content, no double-authoring, staleness CI check), §21.5 (this skill is mandated when the project publishes a website).
+**Governing spec sections:** §11.2 (`website/` — source-derived content, no double-authoring, staleness CI check), §11.3 (SEO and discoverability — required `<head>` metadata, sitemap, robots, OG image, JSON-LD, single SSOT module), §21.5 (this skill is mandated when the project publishes a website).
 
 The `website/` directory contains the marketing site for `spotifai`. Per §11.2 of `OSS_SPEC.md`, its source-derived content (hero copy, feature lists, version strings) must not be authored twice — it is extracted from `README.md`, `docs/`, and `OSS_SPEC.md`, then rendered by the website build.
 
@@ -34,10 +34,12 @@ The `website/` directory contains the marketing site for `spotifai`. Per §11.2 
 
 | Changed file | Effect on website |
 |---|---|
-| `README.md` hero / quick start | Home page feature summary |
+| `README.md` hero / quick start | Home page feature summary; `website/src/seo/siteConfig.mjs` `tagline` / `description` |
 | `README.md` Usage / install | Install & usage pages |
 | `docs/getting-started.md` | "Getting started" page |
 | `OSS_SPEC.md` front-matter `version:` | Version badge on the home page |
+| New public route added in code | Add a row to `siteConfig.routes` so sitemap.xml + per-route `<head>` cover it |
+| Project description / tagline / canonical URL change | `website/src/seo/siteConfig.mjs` (single source of truth — propagates to `<head>`, sitemap, robots, OG image) |
 
 ## Update checklist
 
