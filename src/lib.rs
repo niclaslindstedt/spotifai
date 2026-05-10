@@ -8,6 +8,7 @@ pub mod export;
 pub mod export_schema;
 pub mod import;
 pub mod install;
+pub mod logging;
 pub mod output;
 pub mod permissions;
 pub mod playlist;
