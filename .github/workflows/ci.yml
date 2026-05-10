@@ -6,7 +6,10 @@ on:
   pull_request:
     branches: [main]
 
-# Every `uses:` line below is pinned by commit SHA per OSS_SPEC §14.
+# Every `uses:` line below is pinned by commit SHA per OSS_SPEC §14,
+# except `dtolnay/rust-toolchain` which §10.3 mandates be pinned by
+# its toolchain-version tag (`@1.88.0`) so the version pinned in CI
+# is auditable from one glance.
 # Adjacent comments record the human-readable version for review;
 # keep both in sync when bumping.
 
@@ -21,7 +24,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@98e1b82157cd469e843cb7f524c1313b4ad9492c # 1.88.0
+      - uses: dtolnay/rust-toolchain@1.88.0 # OSS_SPEC §10.3
         with:
           components: clippy, rustfmt
       - run: cargo build --all-targets
@@ -66,7 +69,7 @@ jobs:
       # cargo-binstall can't parse cargo-audit's `edition = "2024"`,
       # so we compile cargo-audit ourselves. The cache below makes
       # the ~3-minute build a one-time cost per version.
-      - uses: dtolnay/rust-toolchain@98e1b82157cd469e843cb7f524c1313b4ad9492c # 1.88.0
+      - uses: dtolnay/rust-toolchain@1.88.0 # OSS_SPEC §10.3
       - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         id: cache-cargo-audit
         with:

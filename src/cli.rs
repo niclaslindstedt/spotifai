@@ -20,16 +20,25 @@
 //! [`crate::providers`] — the CLI surface picks it up automatically
 //! through clap's [`clap::ValueEnum`] derive on [`ProviderArg`].
 
+use std::io::Write as _;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::permissions::Profile;
 use crate::providers::Provider;
-use crate::{api, ask, auth, export, import, install, output, permissions, playlist};
+use crate::{api, ask, auth, export, import, install, logging, output, permissions, playlist};
 
 #[derive(Debug, Parser)]
 #[command(name = "spotifai", version, about, long_about = None)]
 pub struct Cli {
+    /// Echo `debug`-level diagnostic messages to stderr in addition
+    /// to the always-on `debug.log` (§19.3). The file log captures
+    /// `debug` regardless of this flag — see
+    /// [`crate::logging::path`] for its location.
+    #[arg(long, global = true)]
+    pub debug: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -242,11 +251,17 @@ pub struct ImportArgs {
 /// Entry point invoked by `main.rs`.
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
+    if let Err(e) = logging::init(cli.debug) {
+        // Don't fail the command just because the log file is
+        // unreachable — surface it once on stderr and continue.
+        let _ = writeln!(std::io::stderr(), "warning: logging disabled: {e:#}");
+    }
     match cli.command {
         None => {
-            println!("spotifai {}", crate::version());
-            println!("zad library {}", zad::version());
-            println!("\nRun `spotifai --help` for available commands.");
+            output::plain(&format!("spotifai {}", crate::version()));
+            output::plain(&format!("zad library {}", zad::version()));
+            output::plain("");
+            output::plain("Run `spotifai --help` for available commands.");
             Ok(())
         }
         Some(Command::Install(_)) => guided_install(),

@@ -67,6 +67,27 @@ The active (provider, profile) pair is selected by the parent spotifai command:
 |---------------------|---------------------|------|---------|-------------|
 | `output` | `SPOTIFAI_OUTPUT` | `text` \| `json` | `text` | Default output format. Overridable per-invocation with `--output`. |
 
+## Logging
+
+Per OSS_SPEC §19, `spotifai` always writes a debug-level log to a
+persistent file. Verbosity on the terminal is controlled by `--debug`;
+the file log captures everything regardless.
+
+| Platform | Default path |
+|---|---|
+| Linux   | `~/.local/state/spotifai/debug.log` |
+| macOS   | `~/Library/Application Support/spotifai/debug.log` |
+| Windows | `%APPDATA%\spotifai\debug.log` |
+
+| Knob | Type | Default | Description |
+|------|------|---------|-------------|
+| `--debug` | flag | off | Echo `debug`-level events to stderr in addition to the file log. |
+| `SPOTIFAI_LOG` | env | `debug` | [`tracing_subscriber::EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html) directive controlling the file writer. Examples: `SPOTIFAI_LOG=info` quiets the log; `SPOTIFAI_LOG=spotifai=trace,zad=debug` enables fine-grained traces for spotifai while keeping zad at `debug`. |
+
+The file is append-only — no rotation in v1. Truncate manually
+(`: > ~/.local/state/spotifai/debug.log`) or pipe through `logrotate`
+if you need to bound its size.
+
 ## Example `config.toml`
 
 ```toml

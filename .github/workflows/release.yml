@@ -31,7 +31,9 @@ jobs:
     permissions:
       contents: write
       id-token: write
-    # Every `uses:` line below is pinned by commit SHA per OSS_SPEC §14.
+    # Every `uses:` line below is pinned by commit SHA per OSS_SPEC §14,
+    # except `dtolnay/rust-toolchain` which §10.3 mandates be pinned by
+    # its toolchain-version tag (`@1.88.0`).
     # Adjacent comments record the human-readable version for review.
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -53,7 +55,7 @@ jobs:
           git tag -f "${{ steps.tag.outputs.tag }}" HEAD
           git push origin HEAD:main
           git push origin "${{ steps.tag.outputs.tag }}" --force
-      - uses: dtolnay/rust-toolchain@98e1b82157cd469e843cb7f524c1313b4ad9492c # 1.88.0
+      - uses: dtolnay/rust-toolchain@1.88.0 # OSS_SPEC §10.3
       - run: cargo build --release
       - run: cargo test
       # Publishing MUST use crates.io trusted publishing (OIDC).

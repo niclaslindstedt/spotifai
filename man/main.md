@@ -109,8 +109,29 @@ Per-playlist or per-track failures inside the loop accumulate into the final sum
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `--debug`   | bool | false | Echo `debug`-level diagnostics to stderr in addition to the always-on `debug.log`. The log file captures `debug` regardless of this flag (§19.2 / §19.3). Global — works on every subcommand. |
 | `--version` | bool | false | Print version and exit. |
 | `--help`    | bool | false | Print help and exit. |
+
+## Log file
+
+Every `spotifai` invocation appends to a persistent debug log at a
+platform-appropriate location. The log captures every level — including
+`debug` — so a failed run can be triaged without re-running the command
+with extra flags.
+
+| Platform | Path |
+|---|---|
+| Linux   | `~/.local/state/spotifai/debug.log` |
+| macOS   | `~/Library/Application Support/spotifai/debug.log` |
+| Windows | `%APPDATA%\spotifai\debug.log` |
+
+The file rolls forever — there is no built-in rotation in v1. Truncate
+it manually (`: > ~/.local/state/spotifai/debug.log`) or wire up
+`logrotate`. The `SPOTIFAI_LOG` environment variable accepts a
+[`tracing_subscriber::EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html)
+directive (e.g. `SPOTIFAI_LOG=spotifai=trace,zad=debug`) for surgical
+verbosity tweaks; the default is `debug`.
 
 ## Environment variables
 
@@ -118,6 +139,7 @@ Per-playlist or per-track failures inside the loop accumulate into the final sum
 |---|---|
 | `SPOTIFAI_PROVIDER` | Read by `spotifai api` to pick the zad subcommand and the matching `<provider>/` directory under `~/.spotifai/permissions/`. Set on the user's behalf by `ask` / `playlist` / `export`; defaults to `spotify` when unset for backwards compatibility. |
 | `SPOTIFAI_PROFILE`  | Read by `spotifai api` to pick the profile file under the active provider's directory (`ask.toml` / `playlist.toml`). Required for `api` to run; missing or unknown values exit with a usage error. |
+| `SPOTIFAI_LOG`      | [`tracing_subscriber::EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html) directive controlling the verbosity of the `debug.log` writer. Defaults to `debug`. |
 
 ## Exit codes
 
