@@ -59,20 +59,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      # Pin a known toolchain so the runner's preinstalled rust (which
-      # has churned across image versions) cannot drift the result.
-      - uses: dtolnay/rust-toolchain@98e1b82157cd469e843cb7f524c1313b4ad9492c # 1.88.0
-      # Cache the compiled cargo-audit binary across runs so the
-      # `cargo install` below is paid only when its version moves.
-      - name: Cache cargo-audit binary
-        id: cache-cargo-audit
-        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+      # Fetch a prebuilt cargo-audit binary instead of compiling it
+      # (~5 s vs ~3 min). 0.22.x is required to parse advisories that
+      # use CVSS v4.0 (e.g. RUSTSEC-2026-0073) — earlier versions
+      # fail to load the database before scanning anything.
+      - uses: taiki-e/install-action@899b013517f9e7774591216672bf75a46bb9a481 # v2.9.4
         with:
-          path: ~/.cargo/bin/cargo-audit
-          key: cargo-audit-0.22.1-${{ runner.os }}
-      - name: Install cargo-audit
-        if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
-        # ≥ 0.22 is required to parse advisories that use CVSS v4.0
-        # (e.g. RUSTSEC-2026-0073). 0.21.x fails to load the database.
-        run: cargo install --locked --version 0.22.1 cargo-audit
+          tool: cargo-audit@0.22.1
       - run: cargo audit
