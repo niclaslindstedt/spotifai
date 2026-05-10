@@ -27,7 +27,10 @@ use clap::{Parser, Subcommand};
 
 use crate::permissions::Profile;
 use crate::providers::Provider;
-use crate::{api, ask, auth, export, import, install, logging, output, permissions, playlist};
+use crate::{
+    api, ask, auth, commands_index, export, help_agent, import, install, logging, manpages, output,
+    permissions, playlist, topic_docs,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "spotifai", version, about, long_about = None)]
@@ -38,6 +41,19 @@ pub struct Cli {
     /// [`crate::logging::path`] for its location.
     #[arg(long, global = true)]
     pub debug: bool,
+
+    /// Print a compact, prompt-injectable description of spotifai
+    /// suitable for splicing into an LLM prompt via command
+    /// substitution (§12.1). Prints to stdout and exits 0.
+    #[arg(long, global = true)]
+    pub help_agent: bool,
+
+    /// Print a compact troubleshooting context block — log paths,
+    /// config locations, env vars, common failure modes — for
+    /// prompt injection into a debugging session (§12.2). Prints to
+    /// stdout and exits 0.
+    #[arg(long, global = true)]
+    pub debug_agent: bool,
 
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -155,6 +171,23 @@ pub enum Command {
     /// intentionally ignored — only **playlists** are recreated.
     /// Reuses the `playlist` permission profile.
     Import(ImportArgs),
+
+    /// Machine-readable command index (§12.4). With no argument,
+    /// prints every command and its usage signature, one per line.
+    /// With a `<name>` argument, prints the full usage spec for
+    /// that command. With `--examples`, prints realistic example
+    /// invocations instead of (or scoped to) the usage spec.
+    Commands(CommandsArgs),
+
+    /// Print an embedded reference manpage (§12.3). With no
+    /// argument, lists every command that has a manpage. With a
+    /// `<command>` argument, prints `man/<command>.md`.
+    Man(ManArgs),
+
+    /// Print an embedded conceptual doc (§12.3). With no argument,
+    /// lists every available topic. With a `<topic>` argument,
+    /// prints `docs/<topic>.md`.
+    Docs(DocsArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -248,6 +281,32 @@ pub struct ImportArgs {
     pub dry_run: bool,
 }
 
+#[derive(Debug, clap::Args)]
+pub struct CommandsArgs {
+    /// Command name to look up. Without this argument, every
+    /// command is listed.
+    pub name: Option<String>,
+
+    /// Print realistic example invocations instead of the usage
+    /// spec. Combine with `<name>` to scope to one command.
+    #[arg(long)]
+    pub examples: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ManArgs {
+    /// Command whose embedded manpage to print. With no argument,
+    /// lists the available manpages.
+    pub command: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct DocsArgs {
+    /// Topic whose embedded conceptual doc to print. With no
+    /// argument, lists the available topics.
+    pub topic: Option<String>,
+}
+
 /// Entry point invoked by `main.rs`.
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -255,6 +314,17 @@ pub fn run() -> Result<()> {
         // Don't fail the command just because the log file is
         // unreachable — surface it once on stderr and continue.
         let _ = writeln!(std::io::stderr(), "warning: logging disabled: {e:#}");
+    }
+    // §12.1 / §12.2 — agent-prompt-injectable surfaces. Honored
+    // anywhere on the command line (they're `global = true`),
+    // including without a subcommand.
+    if cli.help_agent {
+        help_agent::print_help_agent();
+        return Ok(());
+    }
+    if cli.debug_agent {
+        help_agent::print_debug_agent();
+        return Ok(());
     }
     match cli.command {
         None => {
@@ -293,6 +363,9 @@ pub fn run() -> Result<()> {
             args.input.as_deref(),
             args.dry_run,
         ),
+        Some(Command::Commands(args)) => commands_index::run(args.name.as_deref(), args.examples),
+        Some(Command::Man(args)) => manpages::run(args.command.as_deref()),
+        Some(Command::Docs(args)) => topic_docs::run(args.topic.as_deref()),
     }
 }
 

@@ -30,6 +30,9 @@ Adding another provider is a single change in `src/providers.rs` and is picked u
 | `playlist` | zag session that builds one new playlist for the user on the active provider, with `~/.spotifai/permissions/<provider>/playlist.toml` injected. Adds `playlists create`, `playlists add`, and `playlists rename`; destructive verbs stay denied. |
 | `export`   | Dump the user's library on the active provider — liked tracks/videos, saved albums (Spotify only), and playlists with full ordered track lists — into one structured JSON document. Designed to be portable enough to re-import on another music service later. Defaults to stdout; `--output` redirects to a file. |
 | `import`   | Recreate playlists from a `spotifai export` envelope on the active provider. Reads from stdin by default or `--input PATH`. Same-provider re-imports reuse the embedded IDs; cross-provider migrations (e.g. Spotify → YouTube Music) resolve each track on the target via `zad <provider> search` (ISRC first, then title + primary artist). Existing playlists with the same name are skipped. |
+| `commands` | Machine-readable command index (§12.4). With no argument, lists every command and its usage signature, one per line. With `<name>`, prints the full usage spec for that command. Add `--examples` to print realistic example invocations instead. |
+| `man`      | Print an embedded reference manpage (§12.3). With no argument, lists every command that has a manpage. With a `<command>` argument, prints `man/<command>.md`. |
+| `docs`     | Print an embedded conceptual doc (§12.3). With no argument, lists every available topic. With a `<topic>` argument, prints `docs/<topic>.md`. |
 | `help`     | Show help text. |
 
 ### `spotifai install`
@@ -109,9 +112,43 @@ Per-playlist or per-track failures inside the loop accumulate into the final sum
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--debug`   | bool | false | Echo `debug`-level diagnostics to stderr in addition to the always-on `debug.log`. The log file captures `debug` regardless of this flag (§19.2 / §19.3). Global — works on every subcommand. |
-| `--version` | bool | false | Print version and exit. |
-| `--help`    | bool | false | Print help and exit. |
+| `--debug`         | bool | false | Echo `debug`-level diagnostics to stderr in addition to the always-on `debug.log`. The log file captures `debug` regardless of this flag (§19.2 / §19.3). Global — works on every subcommand. |
+| `--help-agent`    | bool | false | Print a compact, prompt-injectable description of `spotifai` to stdout and exit (§12.1). Designed to be spliced into an LLM prompt via command substitution: `claude "$(spotifai --help-agent) — list my playlists"`. |
+| `--debug-agent`   | bool | false | Print a compact troubleshooting context block — log paths, config locations, env vars, common failure modes — to stdout and exit (§12.2). Designed for command substitution into a debugging prompt. |
+| `--version`       | bool | false | Print version and exit. |
+| `--help`          | bool | false | Print help and exit. |
+
+### `spotifai commands`
+
+Machine-readable command index (§12.4). The output is plain text on stdout with no ANSI escapes, in a line format that does not change across patch releases. Commands, flag specifications, and example invocations all come from `src/commands_index.rs`, the same source of truth `--help-agent` reads from.
+
+| Argument / Flag | Type | Default | Description |
+|---|---|---|---|
+| `[name]` | string | — | Command to look up. Without it, every command is listed. |
+| `--examples` | bool | false | Print realistic example invocations instead of the usage spec. Combine with `[name]` to scope to one command. |
+
+```sh
+spotifai commands              # list every command, one per line
+spotifai commands ask          # full usage spec for one command
+spotifai commands --examples   # realistic examples for every command
+spotifai commands export --examples
+```
+
+### `spotifai man`
+
+Print an embedded reference manpage (§12.3). The full `man/<command>.md` directory is compiled into the binary via `include_str!`, so `spotifai man` works offline and never fetches at runtime.
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `[command]` | string | — | Command whose manpage to print. With no argument, lists every available manpage. |
+
+### `spotifai docs`
+
+Print an embedded conceptual doc (§12.3). The `docs/` directory is compiled into the binary the same way as `man`. Topics map onto the file stems under `docs/`.
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `[topic]` | string | — | Topic whose doc to print (`getting-started`, `configuration`, `architecture`, `export-schema`, `troubleshooting`). With no argument, lists every available topic. |
 
 ## Log file
 

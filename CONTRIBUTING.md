@@ -25,6 +25,22 @@ make lint
 make fmt-check
 ```
 
+## Pre-commit hooks
+
+Install the [`pre-commit`](https://pre-commit.com/) framework once
+(see its docs for your platform) and then enable this repo's hooks
+with a single command:
+
+```sh
+pre-commit install --install-hooks --hook-type pre-commit --hook-type commit-msg
+```
+
+The hooks run `cargo fmt --check`, `cargo clippy -D warnings`,
+`shellcheck`, `actionlint`, trailing-whitespace and EOF fixers, the
+`CHANGELOG.md` forbidden-edit guard, and `conventional-pre-commit` on
+your commit subject. CI runs the same gates, so locally-installed
+hooks just shorten the feedback loop.
+
 ## Development workflow
 
 1. Fork the repo.
