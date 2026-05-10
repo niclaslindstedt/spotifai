@@ -68,3 +68,38 @@ By participating you agree to abide by the [Code of Conduct](CODE_OF_CONDUCT.md)
 
 See [SECURITY.md](SECURITY.md). Do **not** open public issues for security
 problems.
+
+## Communication channels
+
+- **Bugs and feature requests** — open a [GitHub issue](https://github.com/niclaslindstedt/spotifai/issues)
+  using the bug-report or feature-request template.
+- **Questions, ideas, and broader discussion** — use [GitHub Discussions](https://github.com/niclaslindstedt/spotifai/discussions).
+- **Security reports** — use the private channel described in
+  [SECURITY.md](SECURITY.md), never a public issue.
+
+There is no real-time chat channel today; if a project conversation outgrows
+issues and discussions, this section will be updated.
+
+## Governance
+
+`spotifai` follows a **BDFL** model: [@niclaslindstedt](https://github.com/niclaslindstedt)
+is the sole maintainer with merge rights and final say on all decisions.
+
+- **Merge rights:** the BDFL is the only account on the protected `main`
+  branch. All changes — including the BDFL's own — land via pull requests
+  that pass CI and conventional-commit linting.
+- **Decision-making:** technical decisions are made on PRs and issues; large
+  changes should open a Discussion first to gather feedback before code is
+  written.
+- **Adding maintainers:** the BDFL may grant merge rights to long-term
+  contributors who have demonstrated sustained, high-quality involvement.
+  New maintainers are announced in `CHANGELOG.md` under "Changed".
+- **Disagreements:** the BDFL has the final call on contested decisions.
+  Contributors who disagree are welcome to maintain a fork.
+- **Abandonment / transfer:** if the BDFL becomes unavailable for an
+  extended period (≥ 6 months without a release or substantive comment)
+  and no successor maintainer has been named, the project should be
+  considered open for forking.
+
+This governance model can be revisited at any time; substantive changes
+will land via a PR that updates this section.
