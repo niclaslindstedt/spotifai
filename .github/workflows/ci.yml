@@ -59,11 +59,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      # Fetch a prebuilt cargo-audit binary instead of compiling it
-      # (~5 s vs ~3 min). 0.22.x is required to parse advisories that
-      # use CVSS v4.0 (e.g. RUSTSEC-2026-0073) — earlier versions
-      # fail to load the database before scanning anything.
-      - uses: taiki-e/install-action@899b013517f9e7774591216672bf75a46bb9a481 # v2.9.4
+      # 0.22.x is required to parse advisories that use CVSS v4.0
+      # (e.g. RUSTSEC-2026-0073) — earlier versions fail to load the
+      # database before scanning anything. taiki-e/install-action's
+      # prebuilt manifest doesn't carry 0.22.1 yet and its bundled
+      # cargo-binstall can't parse cargo-audit's `edition = "2024"`,
+      # so we compile cargo-audit ourselves. The cache below makes
+      # the ~3-minute build a one-time cost per version.
+      - uses: dtolnay/rust-toolchain@98e1b82157cd469e843cb7f524c1313b4ad9492c # 1.88.0
+      - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        id: cache-cargo-audit
         with:
-          tool: cargo-audit@0.22.1
+          path: ~/.cargo/bin/cargo-audit
+          key: cargo-audit-0.22.1-${{ runner.os }}
+      - if: steps.cache-cargo-audit.outputs.cache-hit != 'true'
+        run: cargo install --locked --version 0.22.1 cargo-audit
       - run: cargo audit
