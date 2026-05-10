@@ -1,47 +1,31 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+## [0.0.1]
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-This file is **auto-generated from conventional commits at release time** —
-do not edit manually.
-
-## [Unreleased]
-
-### Added
-
-- YouTube Music as an alternative backing provider (zad ≥ 0.6.0).
-  Pick the backend with `--provider <slug>` on `auth`, `ask`, `playlist`,
-  and `export`; default stays `spotify`. The provider abstraction in
-  `src/providers.rs` is sized so additional backends drop in by adding
-  one enum variant + one default-policy helper.
-- `spotifai import` subcommand: recreate playlists from a `spotifai export`
-  envelope on the active provider. Reads JSON from stdin (so
-  `spotifai export | spotifai import --provider …` works) or from
-  `--input PATH`. Same-provider re-imports reuse the embedded
-  `spotify_id` / `video_id`; cross-provider migrations resolve each
-  track on the target via `zad <provider> search` (ISRC first, then
-  title + primary artist). Playlists whose name already exists on the
-  target are skipped, making re-runs idempotent. Reuses the existing
-  `playlist` permission profile — no new install/sign step.
-
-### Changed
-
-- Bumped pinned zad version from `v0.4.0` to `v0.6.0`.
-- Permission profile files moved from
-  `~/.spotifai/permissions/<profile>.toml` to
-  `~/.spotifai/permissions/<provider>/<profile>.toml`. Existing
-  installs need to re-run `spotifai install` to scaffold the new
-  layout. Previously hand-edited files are not migrated automatically.
-- `spotifai api` now reads `SPOTIFAI_PROVIDER` (default: `spotify`)
-  alongside `SPOTIFAI_PROFILE` and forwards to the matching
-  `zad <provider>` subcommand.
-- `spotifai install` now scaffolds and signs four files
-  (Spotify × ask/playlist + YouTube Music × ask/playlist) instead of
-  two.
-- System prompts bumped to `1.1.0` with new `{{ provider_name }}` and
-  `{{ provider_examples }}` placeholders; `1.0.x` versions are kept on
-  disk per the immutable-prompts policy.
+- chore(deps): bump pinned zad to v0.4.0 (#12)
+- chore(maintenance): drift sweep across docs, manpages, prompts, website (#18)
+- chore(spec): close qualitative §7/§14/§17/§18/§21 gaps from upstream (#22)
+- chore(spec): sync OSS_SPEC to 2.6.0 and conform to §11.3 SEO mandates (#20)
+- chore: bootstrap project from oss-spec
+- docs(skill): add nonbinary fallback to sync-oss-spec (#21)
+- feat(auth): print requested and granted Spotify scopes (#38)
+- feat(auth): show first-time setup hint with direct dashboard URLs
+- feat(cli): add `auth` command and pin ZAD_PERMISSIONS_PATH on `api` (#11)
+- feat(cli): add `export` command for structured library JSON dump (#14)
+- feat(cli): add `import` command for cross-provider playlist migration (#16)
+- feat(cli): add `playlist` command with per-command permission profiles (#13)
+- feat(cli): add api command that forwards to pinned zad spotify (#9)
+- feat(cli): add ask command and read-only permissions file (#10)
+- feat(cli): implement §12 discoverability contract and §16 pre-commit config (#32)
+- feat(logging): add §19 always-on debug.log and --debug flag (#31)
+- feat(website): expand sitemap and pre-render every doc/manpage for SEO (#35)
+- feat(website): redesign with React, Tailwind, hosted docs, per-route SEO (#33)
+- feat: add YouTube Music as alternative provider via zad 0.6.0 (#15)
+- feat: add zag crate dep and pin zad binary version (#7)
+- feat: migrate zad from CLI binary to Rust library + unified export schema (#17)
+- fix(api): cap search limit at 10 (#37)
+- fix(auth): persist rotated Spotify refresh tokens via zad 0.6.5 (#19)
+- fix(auth): persist rotated refresh tokens during /me probe (#36)
+- fix(install): use rustls-tls-native-roots for HTTPS downloads (#8)
+- fix(website): serve from spotifai.niclaslindstedt.se root (#34)
 
