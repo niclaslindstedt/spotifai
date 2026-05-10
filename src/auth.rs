@@ -165,10 +165,14 @@ async fn run_spotify(opts: AuthOptions) -> Result<()> {
         timeout: Duration::from_secs(120),
         redirect_scheme: RedirectScheme::Https,
     };
+    output::status(&format!("requested Spotify scopes: {}", cfg.scopes.join(" ")));
     let tokens = run_loopback_flow(&cfg, opts.open_browser)
         .await
         .map_err(|e| anyhow!("Spotify OAuth failed: {e}"))?;
     let refresh = require_refresh(&tokens, "Spotify")?;
+    if let Some(scope) = tokens.scope.as_deref() {
+        output::status(&format!("granted Spotify scopes: {scope}"));
+    }
 
     secrets::store(
         &secrets::account("spotify", "client-id", Scope::Global),
