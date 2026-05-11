@@ -2681,7 +2681,7 @@ dependencies = [
 
 [[package]]
 name = "spotifai"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -3980,9 +3980,9 @@ dependencies = [
 
 [[package]]
 name = "zad"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26238b21a61b7da0a3385b0965f3c6b15861d8d444639d2d9c23ceab597415c8"
+checksum = "a8bffc831dcef8478c1b93ec1fb32266e37dd262fbebfc55d9954f46c01839a9"
 dependencies = [
  "async-trait",
  "base64",
