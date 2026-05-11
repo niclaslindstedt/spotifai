@@ -4,20 +4,28 @@
 
 ```
 src/
-  main.rs        — argument parsing, top-level dispatch
-  lib.rs         — module registry
-  cli.rs         — clap-derived CLI surface (`--provider`, subcommands)
-  providers.rs   — provider abstraction: Spotify, YouTube Music, …
-  permissions.rs — per-(provider, profile) permission file format and helpers
-  api.rs         — `spotifai api` forwarder to `zad <provider> …`
-  auth.rs        — `spotifai auth` forwarder to `zad service create <provider>`
-  install.rs     — `spotifai install` (zad binary, signing key, signed permissions)
-  session.rs     — shared agent runner used by `ask` and `playlist`
-  ask.rs         — `spotifai ask` (read-only zag session)
-  playlist.rs    — `spotifai playlist` (one-shot playlist-builder zag session)
-  export.rs      — `spotifai export` (deterministic JSON dump of the user's library)
-  import.rs      — `spotifai import` (deterministic playlist recreation from an export envelope)
-  output.rs      — terminal and JSON rendering
+  main.rs           — argument parsing, top-level dispatch
+  lib.rs            — module registry
+  cli.rs            — clap-derived CLI surface (`--provider`, `--wait`/`--no-wait`, `--yolo`, subcommands)
+  providers.rs      — provider abstraction: Spotify, YouTube Music, …
+  permissions.rs    — per-(provider, profile) permission file format and helpers
+  api.rs            — `spotifai api` typed dispatcher into the zad library
+  api_fields.rs     — `--fields` / `--format` projection for `api` results
+  auth.rs           — `spotifai auth` forwarder to `zad service create <provider>`
+  install.rs        — `spotifai install` (zad binary, signing key, signed permissions)
+  session.rs        — shared agent runner used by `ask` and `playlist`
+  ask.rs            — `spotifai ask` (read-only zag session)
+  playlist.rs       — `spotifai playlist` (one-shot playlist-builder zag session)
+  export.rs         — `spotifai export` (deterministic JSON dump of the user's library)
+  export_schema.rs  — provider-agnostic export envelope
+  import.rs         — `spotifai import` (deterministic playlist recreation from an export envelope)
+  output.rs         — terminal and JSON rendering (the central §19.4 output module)
+  logging.rs        — always-on debug.log writer + `--debug` stderr echo
+  commands_index.rs — built-in command catalogue surfaced via `--help` and `help-agent`
+  help_agent.rs     — machine-readable help dump for nested agents
+  manpages.rs       — embedded `man/<cmd>.md` rendering for `spotifai help <cmd>`
+  topic_docs.rs     — embedded `docs/<topic>.md` rendering for `spotifai help <topic>`
+  zad_client.rs     — thin wrappers around zad: `precall_check`, `wait_mode*`, `SPOTIFAI_WAIT_ENV`
 ```
 
 `main.rs` is intentionally thin: it calls `clap` to parse flags and delegates immediately to `cli::run`. All business logic lives in the library crate so it can be integration-tested without spawning a subprocess.
@@ -56,10 +64,10 @@ Adding another provider (Tidal, Apple Music, …) is a single change in `provide
 
 1. User runs `spotifai ask --provider <slug> "..."` or `spotifai playlist --provider <slug> "..."`.
 2. `main.rs` parses the query and dispatches via `cli::run` to the matching command module.
-3. The command module picks a `(Provider, Profile)` pair, loads the matching `~/.spotifai/permissions/<provider>/<profile>.toml`, renders the versioned system prompt from `prompts/<name>/<version>.md` with the policy and the provider's example block injected, and sets `SPOTIFAI_PROVIDER` + `SPOTIFAI_PROFILE` so child `spotifai api` shells can route to the same file.
+3. The command module picks a `(Provider, Profile)` pair, loads the matching `~/.spotifai/permissions/<provider>/<profile>.toml`, renders the versioned system prompt from `prompts/<name>/<version>.md` with the policy and the provider's example block injected, and sets `SPOTIFAI_PROVIDER` + `SPOTIFAI_PROFILE` (plus `SPOTIFAI_WAIT=1` for the interactive surfaces) so child `spotifai api` shells route to the same file and share the rate-limit cooldown.
 4. zag reasons over the query and emits one or more shell tool calls of the form `spotifai api <verb>`.
-5. `spotifai api` reads `SPOTIFAI_PROVIDER` and `SPOTIFAI_PROFILE`, resolves them to the policy file, sets `ZAD_PERMISSIONS_PATH`, and forwards to `~/.spotifai/bin/zad <provider> <verb>`. zad's load-time trust check verifies the file is signed and that the verb is in the policy.
-6. zad executes the API call against the active provider (Spotify Web API, YouTube Data API v3, …) and returns its result on stdout; zag synthesises a natural-language response from the tool output.
+5. The spawned `spotifai api` process reads `SPOTIFAI_PROVIDER` / `SPOTIFAI_PROFILE`, loads the policy file via zad's signed-trust check, runs `zad::rate_limit::precall_check` to honour any active cooldown, and dispatches the verb directly through the zad library's typed facades (`zad::service::spotify::Spotify`, `zad::service::ymusic::Ymusic`) — there is no shell-out to a `zad` binary.
+6. zad executes the API call against the active provider (Spotify Web API, YouTube Data API v3, …) and returns the typed response; `spotifai api` serialises it to JSON and writes it to stdout. zag synthesises a natural-language response from the tool output.
 7. `output.rs` renders the response in the requested format (`text` or `json`) and writes it to stdout.
 
 ## Prompts

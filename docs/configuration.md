@@ -61,6 +61,23 @@ The active (provider, profile) pair is selected by the parent spotifai command:
 |---------------------|---------------------|------|---------|-------------|
 | `model` | `SPOTIFAI_MODEL` | string | provider default | LLM model identifier forwarded to zag. |
 
+| Knob | Type | Default | Description |
+|------|------|---------|-------------|
+| `--yolo` | flag | off | Forward `auto_approve(true)` to the underlying zag `AgentBuilder` so the interactive surfaces (`spotifai ask`, `spotifai playlist`) skip every per-tool approval prompt. The `(provider, profile)` policy file is still enforced by `spotifai api` at the zad layer, so `--yolo` cannot widen the allowed verb list — it only suppresses zag's tool-approval gating on top. No-op for the one-shot commands (`api`, `auth`, `export`, `import`, `install`) since they do not spawn zag. Global — works on every subcommand. |
+
+## Rate-limit coordination
+
+zad 0.8.0 records the deadline from any 429 response at
+`~/.zad/state/<service>/rate_limit.json` and exposes a precall check so
+every caller — inside the current process and any sibling `spotifai api`
+shell — can gate its calls behind the shared deadline.
+
+| Knob | Type | Default | Description |
+|------|------|---------|-------------|
+| `--wait` | flag | (see below) | When the active provider is in a 429 cooldown window, sleep until the deadline and continue instead of failing fast. No-op when no cooldown is recorded. Default: `true` for the interactive surfaces (`ask`, `playlist`) so multiple sub-agents coordinate cleanly; `false` for the one-shot commands (`api`, `export`, `import`) so a user-driven invocation surfaces 429s loudly. The `SPOTIFAI_WAIT` env var overrides the default; an explicit flag overrides both. Global — works on every subcommand. |
+| `--no-wait` | flag | (see above) | Force fail-fast behaviour even when `SPOTIFAI_WAIT=1` is set. Mutually exclusive with `--wait`. |
+| `SPOTIFAI_WAIT` | env | unset | Read by every `spotifai` invocation to decide whether to sleep through an active 429 cooldown (`1`/`true`/`yes`/`on` → wait; `0`/`false`/`no`/`off` → fail-fast). Set on the user's behalf by `spotifai ask` and `spotifai playlist` to `1` so child `spotifai api` shells coordinate. The CLI `--wait` / `--no-wait` flags override the env var. |
+
 ## Output
 
 | Key (`config.toml`) | Environment variable | Type | Default | Description |
