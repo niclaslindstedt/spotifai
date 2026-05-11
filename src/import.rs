@@ -37,7 +37,7 @@ use crate::providers::Provider;
 use crate::zad_client;
 
 /// Run the import.
-pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Result<()> {
+pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool, wait: bool) -> Result<()> {
     let (policy_path, _wrote) = permissions::ensure_default_for(provider, Profile::Playlist)?;
 
     output::header(&format!("spotifai import ({})", provider.display_name()));
@@ -66,8 +66,8 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Resu
 
     rt.block_on(async {
         match provider {
-            Provider::Spotify => run_spotify(envelope, dry_run, cross_provider).await,
-            Provider::YouTubeMusic => run_ymusic(envelope, dry_run, cross_provider).await,
+            Provider::Spotify => run_spotify(envelope, dry_run, cross_provider, wait).await,
+            Provider::YouTubeMusic => run_ymusic(envelope, dry_run, cross_provider, wait).await,
         }
     })
 }
@@ -76,13 +76,19 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Resu
 // Spotify importer
 // ---------------------------------------------------------------------------
 
-async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) -> Result<()> {
+async fn run_spotify(
+    envelope: Envelope,
+    dry_run: bool,
+    cross_provider: bool,
+    wait: bool,
+) -> Result<()> {
     use zad::service::spotify::{CreatePlaylistRequest, PlaylistsRequest, SearchRequest};
 
     let client = zad_client::load_spotify_all()?;
     let http = zad_client::load_spotify_http(spotify_import_scopes())?;
 
     output::info("fetching existing playlists on target…");
+    zad_client::precall_check(Provider::Spotify, wait).await?;
     let existing = client
         .playlists(PlaylistsRequest::new(50).map_err(map_zad)?)
         .await
@@ -118,6 +124,7 @@ async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) ->
         for track in &playlist.tracks {
             let resolved = if cross_provider {
                 resolve_spotify_via_search(track, |q, types| async {
+                    zad_client::precall_check(Provider::Spotify, wait).await?;
                     let req = SearchRequest::new(q, types, 1).map_err(map_zad)?;
                     let res = client.search(req).await.map_err(map_zad)?;
                     Ok(res
@@ -155,6 +162,7 @@ async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) ->
             playlist.public.unwrap_or(false),
         )
         .map_err(map_zad)?;
+        zad_client::precall_check(Provider::Spotify, wait).await?;
         let created = match client.create_playlist(req).await {
             Ok(p) => p,
             Err(e) => {
@@ -168,6 +176,7 @@ async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) ->
         let mut added = 0usize;
         for chunk in uris.chunks(100) {
             let chunk_vec: Vec<String> = chunk.to_vec();
+            zad_client::precall_check(Provider::Spotify, wait).await?;
             match http.add_playlist_tracks(&created.id, &chunk_vec).await {
                 Ok(()) => added += chunk.len(),
                 Err(e) => {
@@ -225,7 +234,12 @@ where
 // YouTube Music importer
 // ---------------------------------------------------------------------------
 
-async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> Result<()> {
+async fn run_ymusic(
+    envelope: Envelope,
+    dry_run: bool,
+    cross_provider: bool,
+    wait: bool,
+) -> Result<()> {
     use zad::service::ymusic::client::Privacy;
     use zad::service::ymusic::{
         AddPlaylistItemRequest, CreatePlaylistRequest, PlaylistsRequest, SearchRequest,
@@ -234,6 +248,7 @@ async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> 
     let client = zad_client::load_ymusic_all()?;
 
     output::info("fetching existing playlists on target…");
+    zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
     let existing = client
         .playlists(PlaylistsRequest::new(50).map_err(map_zad)?)
         .await
@@ -272,6 +287,7 @@ async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> 
         for track in &playlist.tracks {
             let resolved = if cross_provider {
                 resolve_ymusic_via_search(track, |q| async {
+                    zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
                     let req = SearchRequest::new(q, vec!["video".into()], 1).map_err(map_zad)?;
                     let res = client.search(req).await.map_err(map_zad)?;
                     Ok(res
@@ -312,6 +328,7 @@ async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> 
         };
         let req = CreatePlaylistRequest::new(name.clone(), playlist.description.clone(), privacy)
             .map_err(map_zad)?;
+        zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
         let created = match client.create_playlist(req).await {
             Ok(p) => p,
             Err(e) => {
@@ -325,6 +342,7 @@ async fn run_ymusic(envelope: Envelope, dry_run: bool, cross_provider: bool) -> 
         for video_id in &video_ids {
             let req = AddPlaylistItemRequest::new(created.id.clone(), video_id.clone())
                 .map_err(map_zad)?;
+            zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
             match client.add_playlist_item(req).await {
                 Ok(_) => added += 1,
                 Err(e) => {

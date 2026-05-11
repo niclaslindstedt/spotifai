@@ -313,7 +313,7 @@ fn spotify_track_summary_to_track(t: zad::service::spotify::client::TrackSummary
         artists: t.artists.iter().map(|a| a.name.clone()).collect(),
         album: t.album.as_ref().map(|a| a.name.clone()),
         duration_ms: t.duration_ms,
-        // The TrackSummary projection in zad 0.6.4 doesn't expose
+        // The TrackSummary projection in zad 0.8.0 doesn't expose
         // `external_ids.isrc`. We leave it None here; future zad
         // versions can fill it in and the field will start
         // populating automatically.

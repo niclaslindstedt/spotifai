@@ -33,6 +33,12 @@ main.rs
 
 Neither `zag` nor `zad` imports `spotifai`. The CLI layer never calls a music-service API or the LLM directly — authentication, token refresh, retry, and rate-limiting are owned by `zad` and `zag` respectively.
 
+### Rate-limit coordination (zad 0.8.0)
+
+Spotify and YouTube Music both enforce rolling-window rate limits per application, and the practical consequence of hammering them through a 429 is a longer cooldown that affects every concurrent caller — including unrelated sibling processes that share the OAuth client. zad 0.8.0 introduced a per-service deadline file at `~/.zad/state/<service>/rate_limit.json`: on any 429 response the service client parses `Retry-After`, writes the absolute deadline, and returns `ZadError::RateLimited`. Spotifai calls `zad::rate_limit::precall_check(service, wait)` before every zad operation (`src/api.rs`, `src/export.rs`, `src/import.rs`); with `wait = true` the helper sleeps until the deadline before allowing the call, with `wait = false` it returns the same error so the caller fails fast without burning a request.
+
+The interactive surfaces (`spotifai ask`, `spotifai playlist`) set `SPOTIFAI_WAIT=1` on their own process, so every sub-agent that fans out into `spotifai api …` inherits the same coordination automatically. The one-shot surfaces (`spotifai api`, `export`, `import`) default to fail-fast so a user-driven call surfaces 429s instead of stalling silently. The CLI exposes `--wait` / `--no-wait` global flags as the override.
+
 ## Provider abstraction
 
 `src/providers.rs` owns the `Provider` enum and per-provider data:

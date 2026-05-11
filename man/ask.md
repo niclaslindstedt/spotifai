@@ -29,11 +29,19 @@ The optional positional argument becomes the agent's first turn. With no argumen
 
 ## Flags
 
-`spotifai ask` owns `--provider`. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
+`spotifai ask` owns `--provider`. The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply — `spotifai ask` defaults to `--wait` so sub-agents coordinate on shared rate-limit cooldowns. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
+
+## Rate-limit coordination
+
+`spotifai ask` sessions typically fan out into several sub-agents that each shell out to `spotifai api`. Spotify (and YouTube Music) enforce rolling-window rate limits per application, and the recovery path for repeated 429s is a longer cooldown that affects every sibling at once. To prevent that, zad 0.8.0 records the deadline from any 429 response at `~/.zad/state/<service>/rate_limit.json` and `spotifai api` consults it before issuing each request. `spotifai ask` sets `SPOTIFAI_WAIT=1` on its own process so every child `spotifai api` call inherits "sleep through the cooldown" behaviour; siblings that would otherwise hammer Spotify into a longer cooldown stay paused until the window expires. Pass `--no-wait` to opt out (the session and every sub-agent will then fail fast with a `RateLimited` error on the next API call inside an active window).
 
 ## Environment variables
 
-`spotifai ask` reads no environment variables of its own. zag and its underlying provider (Claude / Codex / Gemini / Copilot / Ollama) inherit the parent environment, so any variables they consult (`ANTHROPIC_API_KEY`, etc.) are honoured. `spotifai ask` *sets* `SPOTIFAI_PROVIDER` and `SPOTIFAI_PROFILE` on its own process so child `spotifai api` shells route to the same `(provider, profile)` policy file the prompt was rendered with.
+`spotifai ask` reads no environment variables of its own beyond the wait-mode override below. zag and its underlying provider (Claude / Codex / Gemini / Copilot / Ollama) inherit the parent environment, so any variables they consult (`ANTHROPIC_API_KEY`, etc.) are honoured. `spotifai ask` *sets* `SPOTIFAI_PROVIDER`, `SPOTIFAI_PROFILE`, and `SPOTIFAI_WAIT` on its own process so child `spotifai api` shells route to the same `(provider, profile)` policy file the prompt was rendered with and respect the same rate-limit-wait policy.
+
+| Variable | Read / set | Description |
+|---|---|---|
+| `SPOTIFAI_WAIT` | read & set | When unset, defaults to `1` for `spotifai ask` so child shells sleep through any active 429 cooldown. `--wait` / `--no-wait` on the command line override the default. Whatever value is resolved is then exported so every sub-agent's `spotifai api` invocation inherits the same policy. |
 
 ## Permissions
 

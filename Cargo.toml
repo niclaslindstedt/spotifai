@@ -28,7 +28,7 @@ toml = "0.8"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-zad = "0.7.3"
+zad = "0.8.0"
 zag = "0.17"
 
 [dev-dependencies]

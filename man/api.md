@@ -24,9 +24,11 @@ For each call, `spotifai api` pins `ZAD_PERMISSIONS_PATH` at the matching `~/.sp
 
 ## Flags
 
-`spotifai api` itself takes no flags. Anything that looks like a flag after the `api` keyword is parsed as part of the verb.
+`spotifai api` itself takes no positional flags. Anything that looks like a flag after the `api` keyword is parsed as part of the verb.
 
 There is intentionally **no** `--provider` flag on `api`: clap's trailing-var-arg parsing would swallow it. Use `SPOTIFAI_PROVIDER` (or, more typically, just the parent `--provider` flag on `ask` / `playlist` / `export` / `import`).
+
+The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) apply when placed *before* the `api` keyword (`spotifai --wait api playlists list`). They are also picked up from the `SPOTIFAI_WAIT` env var that `spotifai ask` / `spotifai playlist` set on the user's behalf, so a sub-agent's `spotifai api …` shell inherits the policy without anyone having to thread it through the argv. Default for direct invocations is fail-fast (`--no-wait`).
 
 ### Verb flags
 
@@ -57,6 +59,7 @@ Other verbs (`playlists list/create/add`, `library …`) accept `--limit`, `--js
 |---|---|---|
 | `SPOTIFAI_PROVIDER` | read | Selects which zad service facade (`Spotify` / `Ymusic` / …) and which `~/.spotifai/permissions/<provider>/` directory the call routes through. Set by `spotifai ask` / `playlist` / `export` / `import` on the user's behalf. Unset is treated as `spotify` for backwards compatibility; an unknown value fails with a usage error. |
 | `SPOTIFAI_PROFILE` | read | Selects which `<profile>.toml` to point zad at. Set by the parent surface (`ask` for read-only, `playlist` for the curator profile) on the user's behalf. Treated as an internal coupling, not a user knob: missing or unknown values fail with a usage error. |
+| `SPOTIFAI_WAIT` | read | Controls how `spotifai api` reacts when zad 0.8.0's shared rate-limit deadline file (`~/.zad/state/<service>/rate_limit.json`) shows the active provider is still in a 429 cooldown window. `1`/`true`/`yes`/`on` → sleep until the deadline and continue; `0`/`false`/`no`/`off` → return an error wrapping `zad::ZadError::RateLimited` so the caller fails fast. Set on the user's behalf by `spotifai ask` / `spotifai playlist` so sub-agent fan-outs coordinate on one quota. The CLI `--wait` / `--no-wait` flags override the env var. |
 | `ZAD_PERMISSIONS_PATH` | set | Set on the in-process zad call to `~/.spotifai/permissions/<provider>/<profile>.toml`. Always overrides any inherited value so an agent cannot escalate by setting the zad variable itself before invoking the shim. zad ≥ 0.3.0 reads this variable as an explicit override that bypasses the cwd-derived project slug. |
 
 OAuth tokens are read from the OS keychain by zad on every call; no environment variable is consulted for credentials.

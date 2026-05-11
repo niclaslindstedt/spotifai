@@ -22,6 +22,7 @@ use crate::api::{SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV};
 use crate::output;
 use crate::permissions::{self, Permissions, Profile};
 use crate::providers::Provider;
+use crate::zad_client::SPOTIFAI_WAIT_ENV;
 
 /// Drive one of spotifai's interactive zag surfaces end-to-end.
 ///
@@ -36,6 +37,7 @@ pub fn run_agent(
     command_label: &str,
     prompt_template: &str,
     initial_prompt: Option<&str>,
+    wait: bool,
 ) -> Result<()> {
     // Always make sure the policy file exists before we read it. The
     // first run creates a default; subsequent runs are a no-op so
@@ -63,9 +65,17 @@ pub fn run_agent(
     // forbids env mutation in multithreaded programs. spotifai is
     // single-threaded at this point — the tokio runtime below is
     // built *after* the env is set — so the call is sound.
+    //
+    // `SPOTIFAI_WAIT` is set unconditionally so child `spotifai api`
+    // shells coordinate through zad 0.8.0's shared rate-limit
+    // deadline file. When sub-agents fan out and one trips a 429,
+    // every sibling that follows will read the deadline and sleep
+    // (with `wait = true`) or fail fast (with `--no-wait`) instead
+    // of hammering Spotify into a longer cooldown.
     unsafe {
         std::env::set_var(SPOTIFAI_PROVIDER_ENV, provider.as_str());
         std::env::set_var(SPOTIFAI_PROFILE_ENV, profile.as_str());
+        std::env::set_var(SPOTIFAI_WAIT_ENV, if wait { "1" } else { "0" });
     }
 
     output::header(&format!(
