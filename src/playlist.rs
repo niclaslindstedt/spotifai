@@ -15,12 +15,12 @@ use crate::providers::Provider;
 use crate::session;
 
 /// Raw `prompts/playlist/<version>.md` file baked in at compile time.
-pub const PLAYLIST_PROMPT_RAW: &str = include_str!("../prompts/playlist/1_4_0.md");
+pub const PLAYLIST_PROMPT_RAW: &str = include_str!("../prompts/playlist/1_5_0.md");
 
 /// Run the `playlist` command. `initial_prompt` is the user's first
 /// brief (the trailing positional arg from the CLI). `None` drops
 /// straight into the interactive session with no opener.
-pub fn run(provider: Provider, initial_prompt: Option<&str>, wait: bool) -> Result<()> {
+pub fn run(provider: Provider, initial_prompt: Option<&str>, wait: bool, yolo: bool) -> Result<()> {
     session::run_agent(
         provider,
         Profile::Playlist,
@@ -28,6 +28,7 @@ pub fn run(provider: Provider, initial_prompt: Option<&str>, wait: bool) -> Resu
         PLAYLIST_PROMPT_RAW,
         initial_prompt,
         wait,
+        yolo,
     )
 }
 

@@ -150,6 +150,7 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         examples: &[
             "spotifai playlist \"a 30-min focus playlist with no vocals\"",
             "spotifai playlist --provider ymusic \"upbeat 45-minute commute mix\"",
+            "spotifai --yolo playlist \"a 200-song running playlist\"",
         ],
     },
     CommandSpec {

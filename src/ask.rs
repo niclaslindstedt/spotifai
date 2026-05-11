@@ -24,8 +24,11 @@ pub const ASK_PROMPT_RAW: &str = include_str!("../prompts/ask/1_2_0.md");
 /// straight into the interactive session with no opener. `wait`
 /// propagates the [`crate::zad_client::SPOTIFAI_WAIT_ENV`] value to
 /// every child `spotifai api` shell zag spawns so sibling sub-agents
-/// coordinate through zad's shared rate-limit deadline file.
-pub fn run(provider: Provider, initial_prompt: Option<&str>, wait: bool) -> Result<()> {
+/// coordinate through zad's shared rate-limit deadline file. `yolo`
+/// enables zag's `auto_approve` mode (skip every tool-call permission
+/// prompt) on top of the spotifai permissions policy that is still
+/// enforced by `spotifai api`.
+pub fn run(provider: Provider, initial_prompt: Option<&str>, wait: bool, yolo: bool) -> Result<()> {
     session::run_agent(
         provider,
         Profile::Ask,
@@ -33,6 +36,7 @@ pub fn run(provider: Provider, initial_prompt: Option<&str>, wait: bool) -> Resu
         ASK_PROMPT_RAW,
         initial_prompt,
         wait,
+        yolo,
     )
 }
 
