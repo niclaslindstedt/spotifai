@@ -1,6 +1,7 @@
 # Changelog
 
-## [0.1.2]
+## [0.1.3]
 
-- chore(deps): bump zad to 0.8.1 (#46)
+- feat(cli,prompts): add --yolo flag and playlist prompt v1.5.0 (#47)
+- fix(release): regenerate Cargo.lock in update-versions.sh (#48)
 
