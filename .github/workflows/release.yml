@@ -39,6 +39,13 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@1.88.0 # OSS_SPEC §10.3
+        # Installed up front so `scripts/update-versions.sh` can
+        # call `cargo generate-lockfile` to refresh `Cargo.lock`
+        # alongside `Cargo.toml`. Without this, the downstream
+        # `publish-crates` job would find a stale lockfile and
+        # `cargo publish`'s internal build would regenerate it and
+        # then refuse to publish a dirty working tree.
       - name: Resolve tag
         id: tag
         run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
@@ -57,7 +64,6 @@ jobs:
           git push origin HEAD:main
           git push origin "${{ steps.tag.outputs.tag }}" --force
           echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@1.88.0 # OSS_SPEC §10.3
       - run: cargo build --release
       - run: cargo test
       - name: GitHub Release
@@ -87,13 +93,6 @@ jobs:
         id: crates-auth
         uses: rust-lang/crates-io-auth-action@v1
       - name: Publish spotifai
-        # `--allow-dirty`: the release job bumps `Cargo.toml` but
-        # does not refresh `Cargo.lock`; `cargo publish` runs its
-        # own build first, which regenerates the lockfile and would
-        # otherwise abort with "files in the working directory
-        # contain changes that were not yet committed". The dirty
-        # file is only the bumped local-package version in
-        # `Cargo.lock` — safe to publish.
-        run: cargo publish --allow-dirty
+        run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
