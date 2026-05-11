@@ -193,12 +193,136 @@ fn playlists_list_takes_limit() {
 fn playlists_show_takes_id() {
     let v = parse_verb(Provider::Spotify, &args(&["playlists", "show", "abc123"])).unwrap();
     match v {
-        Verb::PlaylistsShow { id, limit } => {
+        Verb::PlaylistsShow {
+            id,
+            limit,
+            fields,
+            format,
+        } => {
             assert_eq!(id, "abc123");
             assert_eq!(limit, DEFAULT_LIMIT);
+            assert!(fields.is_empty());
+            assert_eq!(format, OutputFormat::Json);
         }
         other => panic!("expected PlaylistsShow, got {other:?}"),
     }
+}
+
+#[test]
+fn playlists_show_parses_fields_and_format() {
+    let v = parse_verb(
+        Provider::Spotify,
+        &args(&[
+            "playlists",
+            "show",
+            "PLST",
+            "--limit",
+            "20",
+            "--fields",
+            "title,artist,id",
+            "--format",
+            "text",
+        ]),
+    )
+    .unwrap();
+    match v {
+        Verb::PlaylistsShow {
+            id,
+            limit,
+            fields,
+            format,
+        } => {
+            assert_eq!(id, "PLST");
+            assert_eq!(limit, 20);
+            assert_eq!(fields, vec!["title", "artist", "id"]);
+            assert_eq!(format, OutputFormat::Text);
+        }
+        other => panic!("expected PlaylistsShow, got {other:?}"),
+    }
+}
+
+#[test]
+fn playlists_show_format_text_requires_fields() {
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "show", "PLST", "--format", "text"]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn playlists_show_rejects_unknown_format() {
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "show", "PLST", "--format", "yaml"]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn project_envelope_unwraps_spotify_playlist_track_item() {
+    // `spotifai api playlists show` returns a top-level
+    // `{name, items: [{item: {...}, added_at: ...}]}` envelope. The
+    // projector should reach into `item` so `--fields title,artist,id`
+    // works against playlist-tracks just like it does against search
+    // results.
+    let mut value = json!({
+        "name": "Workout",
+        "items": [
+            {
+                "added_at": "2024-01-01T00:00:00Z",
+                "item": {
+                    "id": "t1",
+                    "name": "Eye of the Tiger",
+                    "uri": "spotify:track:t1",
+                    "artists": [{"id": "a1", "name": "Survivor"}],
+                    "album": {"id": "al1", "name": "Eye of the Tiger"}
+                }
+            }
+        ]
+    });
+    let fields = vec!["title".to_string(), "artist".to_string(), "id".to_string()];
+    api_fields::project_envelope(&mut value, &fields);
+    let item = &value["items"][0];
+    assert_eq!(item["title"], "Eye of the Tiger");
+    assert_eq!(item["artist"], "Survivor");
+    assert_eq!(item["id"], "t1");
+    // The wrapper keys are dropped along with everything else not
+    // explicitly requested.
+    assert!(item.get("added_at").is_none());
+    assert!(item.get("item").is_none());
+}
+
+#[test]
+fn project_envelope_resolves_ymusic_playlist_item_video_id() {
+    // YMusic playlist-items wrap the video in
+    // `{id: <playlistItemId>, snippet: {...}, contentDetails: {videoId}}`.
+    // Asking for `id` should yield the underlying videoId, not the
+    // playlist-item record id.
+    let mut value = json!({
+        "id": "PL123",
+        "items": [
+            {
+                "id": "pli-abc",
+                "snippet": {
+                    "title": "Hello",
+                    "videoOwnerChannelTitle": "Adele",
+                    "resourceId": {"kind": "youtube#video", "videoId": "vid-xyz"}
+                },
+                "contentDetails": {"videoId": "vid-xyz"}
+            }
+        ]
+    });
+    let fields = vec!["title".to_string(), "artist".to_string(), "id".to_string()];
+    api_fields::project_envelope(&mut value, &fields);
+    let item = &value["items"][0];
+    assert_eq!(item["title"], "Hello");
+    assert_eq!(item["artist"], "Adele");
+    assert_eq!(item["id"], "vid-xyz");
 }
 
 #[test]
