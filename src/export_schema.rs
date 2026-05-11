@@ -358,7 +358,7 @@ fn spotify_playlist_to_playlist(
         .into_iter()
         .filter_map(|it| {
             let added = it.added_at.clone();
-            it.track.map(|t| {
+            it.item.map(|t| {
                 let mut track = spotify_track_summary_to_track(t);
                 track.added_at = added;
                 track

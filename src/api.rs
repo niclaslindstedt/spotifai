@@ -14,12 +14,11 @@
 //! from `SPOTIFAI_PROVIDER` and the active profile from
 //! `SPOTIFAI_PROFILE`, both set by the parent surface.
 
-use std::io::Write;
-
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::api_fields::{self, OutputFormat};
 use crate::permissions::Profile;
 use crate::providers::Provider;
 use crate::zad_client;
@@ -97,11 +96,13 @@ fn missing_profile_message() -> String {
 /// One typed dispatch a user has asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verb {
-    /// `search "query" [--type T]* [--limit N]`
+    /// `search "query" [--type T]* [--limit N] [--fields a,b,c] [--format json|text]`
     Search {
         query: String,
         types: Vec<String>,
         limit: u32,
+        fields: Vec<String>,
+        format: OutputFormat,
     },
     /// `playlists list [--limit N]`
     PlaylistsList { limit: u32 },
@@ -164,6 +165,8 @@ where
     let mut query: Option<String> = None;
     let mut types: Vec<String> = Vec::new();
     let mut limit: u32 = SEARCH_LIMIT;
+    let mut fields: Vec<String> = Vec::new();
+    let mut format = OutputFormat::default();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--type" | "-t" => {
@@ -178,8 +181,27 @@ where
                 limit = parse_search_limit(v)?;
             }
             s if s.starts_with("--limit=") => limit = parse_search_limit(&s["--limit=".len()..])?,
+            "--fields" | "-f" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--fields needs a comma-separated value"))?;
+                api_fields::append_fields(v, &mut fields);
+            }
+            s if s.starts_with("--fields=") => {
+                api_fields::append_fields(&s["--fields=".len()..], &mut fields);
+            }
+            "--format" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--format needs a value (json|text)"))?;
+                format = api_fields::parse_format(v)?;
+            }
+            s if s.starts_with("--format=") => {
+                format = api_fields::parse_format(&s["--format=".len()..])?;
+            }
             "--json" | "--pretty" => {
-                // Output is always JSON; the flags are a no-op.
+                // Legacy no-ops; `--format json` is the canonical way.
+                format = OutputFormat::Json;
             }
             s if s.starts_with("--") => {
                 bail!("unknown flag `{s}` for `search`");
@@ -196,10 +218,15 @@ where
     if types.is_empty() {
         types.push("track".into());
     }
+    if format == OutputFormat::Text && fields.is_empty() {
+        bail!("--format text requires --fields to choose which columns to print");
+    }
     Ok(Verb::Search {
         query,
         types,
         limit,
+        fields,
+        format,
     })
 }
 
@@ -404,11 +431,34 @@ fn parse_search_limit(s: &str) -> Result<u32> {
 
 async fn dispatch(provider: Provider, _profile: Profile, user_args: &[String]) -> Result<()> {
     let verb = parse_verb(provider, user_args)?;
-    let value = match provider {
+    let output = output_opts(&verb);
+    let mut value = match provider {
         Provider::Spotify => dispatch_spotify(verb).await?,
         Provider::YouTubeMusic => dispatch_ymusic(verb).await?,
     };
-    write_json(&value)
+    api_fields::project_envelope(&mut value, &output.fields);
+    match output.format {
+        OutputFormat::Json => api_fields::write_json(&value),
+        OutputFormat::Text => api_fields::write_text(&value, &output.fields),
+    }
+}
+
+struct OutputOpts {
+    fields: Vec<String>,
+    format: OutputFormat,
+}
+
+fn output_opts(verb: &Verb) -> OutputOpts {
+    match verb {
+        Verb::Search { fields, format, .. } => OutputOpts {
+            fields: fields.clone(),
+            format: *format,
+        },
+        _ => OutputOpts {
+            fields: Vec::new(),
+            format: OutputFormat::Json,
+        },
+    }
 }
 
 async fn dispatch_spotify(verb: Verb) -> Result<Value> {
@@ -420,6 +470,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
             query,
             types,
             limit,
+            ..
         } => {
             let client = zad_client::load_spotify_all()?;
             let req = SearchRequest::new(query, types, limit)
@@ -527,6 +578,7 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
             query,
             types,
             limit,
+            ..
         } => {
             let client = zad_client::load_ymusic_all()?;
             // YouTube Music's API takes `video`, `playlist`,
@@ -686,17 +738,4 @@ fn default_ymusic_scopes() -> std::collections::BTreeSet<String> {
 
 fn to_value<T: Serialize>(t: &T) -> Result<Value> {
     serde_json::to_value(t).context("serializing zad response to JSON")
-}
-
-fn write_json(value: &Value) -> Result<()> {
-    let body = serde_json::to_string_pretty(value).context("serializing JSON output")?;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    handle
-        .write_all(body.as_bytes())
-        .context("writing JSON to stdout")?;
-    handle
-        .write_all(b"\n")
-        .context("writing trailing newline")?;
-    Ok(())
 }
