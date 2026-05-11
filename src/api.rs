@@ -106,8 +106,13 @@ pub enum Verb {
     },
     /// `playlists list [--limit N]`
     PlaylistsList { limit: u32 },
-    /// `playlists show <id>`
-    PlaylistsShow { id: String, limit: u32 },
+    /// `playlists show <id> [--limit N] [--fields a,b,c] [--format json|text]`
+    PlaylistsShow {
+        id: String,
+        limit: u32,
+        fields: Vec<String>,
+        format: OutputFormat,
+    },
     /// `playlists create --name|--title <name> [--description X] [--public|--private]`
     PlaylistsCreate {
         name: String,
@@ -248,10 +253,12 @@ where
                 .next()
                 .ok_or_else(|| anyhow!("`playlists show` needs a playlist id"))?
                 .clone();
-            let opts = parse_list_opts(iter)?;
+            let opts = parse_show_opts(iter)?;
             Ok(Verb::PlaylistsShow {
                 id,
                 limit: opts.limit,
+                fields: opts.fields,
+                format: opts.format,
             })
         }
         "create" => parse_playlists_create(provider, iter),
@@ -405,6 +412,63 @@ where
     Ok(opts)
 }
 
+#[derive(Debug)]
+struct ShowOpts {
+    limit: u32,
+    fields: Vec<String>,
+    format: OutputFormat,
+}
+
+fn parse_show_opts<'a, I>(iter: &mut std::iter::Peekable<I>) -> Result<ShowOpts>
+where
+    I: Iterator<Item = &'a String>,
+{
+    let mut opts = ShowOpts {
+        limit: DEFAULT_LIMIT,
+        fields: Vec::new(),
+        format: OutputFormat::default(),
+    };
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--limit" | "-l" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--limit needs a value"))?;
+                opts.limit = parse_limit(v)?;
+            }
+            s if s.starts_with("--limit=") => {
+                opts.limit = parse_limit(&s["--limit=".len()..])?;
+            }
+            "--fields" | "-f" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--fields needs a comma-separated value"))?;
+                api_fields::append_fields(v, &mut opts.fields);
+            }
+            s if s.starts_with("--fields=") => {
+                api_fields::append_fields(&s["--fields=".len()..], &mut opts.fields);
+            }
+            "--format" => {
+                let v = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--format needs a value (json|text)"))?;
+                opts.format = api_fields::parse_format(v)?;
+            }
+            s if s.starts_with("--format=") => {
+                opts.format = api_fields::parse_format(&s["--format=".len()..])?;
+            }
+            "--json" | "--pretty" => {
+                opts.format = OutputFormat::Json;
+            }
+            other => bail!("unknown arg `{other}` for `playlists show`"),
+        }
+    }
+    if opts.format == OutputFormat::Text && opts.fields.is_empty() {
+        bail!("--format text requires --fields to choose which columns to print");
+    }
+    Ok(opts)
+}
+
 fn parse_limit(s: &str) -> Result<u32> {
     let n: u32 = s
         .parse()
@@ -450,10 +514,12 @@ struct OutputOpts {
 
 fn output_opts(verb: &Verb) -> OutputOpts {
     match verb {
-        Verb::Search { fields, format, .. } => OutputOpts {
-            fields: fields.clone(),
-            format: *format,
-        },
+        Verb::Search { fields, format, .. } | Verb::PlaylistsShow { fields, format, .. } => {
+            OutputOpts {
+                fields: fields.clone(),
+                format: *format,
+            }
+        }
         _ => OutputOpts {
             fields: Vec::new(),
             format: OutputFormat::Json,
@@ -491,7 +557,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
                 .map_err(|e| anyhow!("spotify playlists list failed: {e}"))?;
             Ok(json!({ "items": to_value(&res)? }))
         }
-        Verb::PlaylistsShow { id, limit } => {
+        Verb::PlaylistsShow { id, limit, .. } => {
             let http = zad_client::load_spotify_http(default_spotify_scopes())?;
             let summary = http
                 .get_playlist(&id)
@@ -503,7 +569,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
                 .map_err(|e| anyhow!("spotify get_playlist_tracks failed: {e}"))?;
             let mut summary_value = to_value(&summary)?;
             if let Some(obj) = summary_value.as_object_mut() {
-                obj.insert("tracks_items".into(), to_value(&tracks)?);
+                obj.insert("items".into(), to_value(&tracks)?);
             }
             Ok(summary_value)
         }
@@ -604,7 +670,7 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
                 .map_err(|e| anyhow!("ymusic playlists list failed: {e}"))?;
             Ok(json!({ "items": to_value(&res)? }))
         }
-        Verb::PlaylistsShow { id, limit } => {
+        Verb::PlaylistsShow { id, limit, .. } => {
             let http = zad_client::load_ymusic_http(default_ymusic_scopes())?;
             let summary = http
                 .get_playlist(&id)

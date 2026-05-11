@@ -40,7 +40,16 @@ There is intentionally **no** `--provider` flag on `api`: clap's trailing-var-ar
 | `--format <json\|text>` | enum | `json` | `json` keeps the existing pretty-printed envelope; `text` emits one item per line with the requested fields tab-separated in the order given. `--format text` requires `--fields`. |
 | `--json` / `--pretty` | flag | — | Legacy no-ops that select JSON output. Prefer `--format json`. |
 
-Other verbs (`playlists list/show/create/add`, `library …`) accept `--limit`, `--json`, and `--pretty` only. `--fields` and `--format` are search-only for now.
+`playlists show`:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--limit / -l <N>` | integer 1–50 | `50` | How many tracks of the playlist to fetch. |
+| `--fields / -f <list>` | comma-separated, repeatable | (all) | Project each track down to just the named fields. Same aliases as `search` — `title`, `artist`, `album`, `id`, `uri`, `duration`. For Spotify the projector transparently unwraps the `{item: <track>, added_at: ...}` envelope each playlist-track is wrapped in; for YouTube Music it resolves `id` to the underlying `contentDetails.videoId` rather than the playlist-item record id. |
+| `--format <json\|text>` | enum | `json` | `json` keeps the existing pretty-printed envelope; `text` emits one track per line with the requested fields tab-separated in the order given. `--format text` requires `--fields`. |
+| `--json` / `--pretty` | flag | — | Legacy no-ops that select JSON output. Prefer `--format json`. |
+
+Other verbs (`playlists list/create/add`, `library …`) accept `--limit`, `--json`, and `--pretty` only.
 
 ## Environment variables
 
@@ -85,6 +94,13 @@ Drop the JSON envelope entirely — one item per line, tab-separated — for the
 
 ```sh
 SPOTIFAI_PROFILE=ask spotifai api search "billie jean" \
+    --fields title,artist,id --format text
+```
+
+Read an existing playlist's tracks in the same compact shape:
+
+```sh
+SPOTIFAI_PROFILE=ask spotifai api playlists show 37i9dQZF1DXcBWIGoYBM5M \
     --fields title,artist,id --format text
 ```
 

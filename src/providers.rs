@@ -259,20 +259,30 @@ pub fn ymusic_default(profile: Profile) -> Permissions {
 }
 
 const SPOTIFY_API_EXAMPLES: &str = "\
-- `spotifai api search \"moon river\"` — search the catalogue
-- `spotifai api search \"kind of blue\" --type album --type artist`
-- `spotifai api playlists list --json` — list all of the user's playlists
-- `spotifai api playlists show <playlist-id-or-name> --json`
-- `spotifai api playlists create --name \"<name>\" --json` — create a new playlist (write profiles only)
-- `spotifai api playlists add <playlist-id> <track-id> [<track-id>…] --json` — populate a playlist (write profiles only)
-- `spotifai api library tracks list --limit 50 --json`
-- `spotifai api library albums list --limit 50 --json`";
+- `spotifai api search \"moon river\" --fields title,artist,id --format text` — search the catalogue (compact one-row-per-track output)
+- `spotifai api search \"kind of blue\" --type album --type artist --fields title,artist,id --format text`
+- `spotifai api playlists list` — list all of the user's playlists
+- `spotifai api playlists show <playlist-id-or-name> --fields title,artist,id --format text` — show a playlist's tracks compactly
+- `spotifai api playlists create --name \"<name>\"` — create a new playlist (write profiles only)
+- `spotifai api playlists add <playlist-id> <track-id> [<track-id>…]` — populate a playlist (write profiles only)
+- `spotifai api library tracks list --limit 50`
+- `spotifai api library albums list --limit 50`
+
+`search` and `playlists show` accept `--fields a,b,c` plus
+`--format text` to print one row per item (tab-separated, fields in the
+order you ask). Always prefer the projected form — a bare JSON envelope
+burns tokens fast.";
 
 const YMUSIC_API_EXAMPLES: &str = "\
-- `spotifai api search \"moon river\"` — search the catalogue
-- `spotifai api search \"kind of blue\" --type playlist`
-- `spotifai api playlists list --json` — list all of the user's playlists
-- `spotifai api playlists show <playlist-id> --json`
-- `spotifai api playlists create --title \"<title>\" --json` — create a new playlist (write profiles only)
-- `spotifai api playlists add <playlist-id> <video-id> [<video-id>…] --json` — populate a playlist (write profiles only)
-- `spotifai api library list --limit 50 --json` — list the user's rated videos";
+- `spotifai api search \"moon river\" --fields title,artist,id --format text` — search the catalogue (compact one-row-per-video output)
+- `spotifai api search \"kind of blue\" --type playlist --fields title,id --format text`
+- `spotifai api playlists list` — list all of the user's playlists
+- `spotifai api playlists show <playlist-id> --fields title,artist,id --format text` — show a playlist's items compactly
+- `spotifai api playlists create --title \"<title>\"` — create a new playlist (write profiles only)
+- `spotifai api playlists add <playlist-id> <video-id> [<video-id>…]` — populate a playlist (write profiles only)
+- `spotifai api library list --limit 50` — list the user's rated videos
+
+`search` and `playlists show` accept `--fields a,b,c` plus
+`--format text` to print one row per item (tab-separated, fields in the
+order you ask). Always prefer the projected form — a bare JSON envelope
+burns tokens fast.";

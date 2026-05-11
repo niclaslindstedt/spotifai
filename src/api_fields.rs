@@ -90,7 +90,25 @@ fn project_item(item: &Value, fields: &[String]) -> Value {
 /// item. Aliases collapse provider-specific shapes (Spotify's
 /// `artists: [{name}]` vs YouTube Music's `snippet.channelTitle`) into
 /// a single string the caller can consume.
+///
+/// For Spotify's `playlists show` response each item is wrapped in
+/// `{item: <track>, added_at: ...}` (legacy `{track: <track>, ...}`);
+/// the inner track is unwrapped transparently so the caller asks for
+/// `title,artist,album,id` regardless of which endpoint the envelope
+/// came from.
 fn lookup_field(item: &Value, field: &str) -> Option<Value> {
+    if let Some(inner) = item
+        .get("item")
+        .or_else(|| item.get("track"))
+        .filter(|v| v.is_object())
+        && let Some(v) = lookup_field_direct(inner, field)
+    {
+        return Some(v);
+    }
+    lookup_field_direct(item, field)
+}
+
+fn lookup_field_direct(item: &Value, field: &str) -> Option<Value> {
     match field.to_ascii_lowercase().as_str() {
         "title" | "name" => item
             .get("name")
@@ -121,19 +139,14 @@ fn artist_field(item: &Value) -> Option<Value> {
         }
         return Some(Value::String(names.join(", ")));
     }
-    if let Some(s) = item
-        .get("snippet")
-        .and_then(|s| s.get("channelTitle"))
-        .and_then(|v| v.as_str())
-    {
-        return Some(Value::String(s.to_string()));
-    }
-    if let Some(s) = item
-        .get("snippet")
-        .and_then(|s| s.get("channel_title"))
-        .and_then(|v| v.as_str())
-    {
-        return Some(Value::String(s.to_string()));
+    for key in ["videoOwnerChannelTitle", "channelTitle", "channel_title"] {
+        if let Some(s) = item
+            .get("snippet")
+            .and_then(|s| s.get(key))
+            .and_then(|v| v.as_str())
+        {
+            return Some(Value::String(s.to_string()));
+        }
     }
     None
 }
@@ -147,6 +160,26 @@ fn album_field(item: &Value) -> Option<Value> {
 }
 
 fn id_field(item: &Value) -> Option<Value> {
+    // YMusic playlist-items put the playlistItem record id at the top
+    // level; the underlying video id lives at `contentDetails.videoId`
+    // (or `snippet.resourceId.videoId` on older shapes). Callers
+    // asking for `id` almost always want the video, not the
+    // playlist-item record, so prefer those.
+    if let Some(s) = item
+        .get("contentDetails")
+        .and_then(|c| c.get("videoId"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(Value::String(s.to_string()));
+    }
+    if let Some(s) = item
+        .get("snippet")
+        .and_then(|s| s.get("resourceId"))
+        .and_then(|r| r.get("videoId"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(Value::String(s.to_string()));
+    }
     match item.get("id")? {
         Value::String(s) => Some(Value::String(s.clone())),
         Value::Object(map) => {
