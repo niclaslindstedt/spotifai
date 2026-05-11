@@ -2,8 +2,11 @@
 
 A Rust CLI for managing your music library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify / YouTube Music integration).
 
-[![CI](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![ci](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml)
+[![release](https://github.com/niclaslindstedt/spotifai/actions/workflows/release.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/release.yml)
+[![pages](https://github.com/niclaslindstedt/spotifai/actions/workflows/pages.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/pages.yml)
+[![crates](https://img.shields.io/crates/v/spotifai.svg)](https://crates.io/crates/spotifai)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Why?
 
@@ -25,7 +28,7 @@ The provider abstraction is built so a third backend (Tidal, Apple Music, …) i
 
 ## Prerequisites
 
-- Rust stable (≥ 1.78) and Cargo — install via [rustup](https://rustup.rs/)
+- Rust stable (≥ 1.88) and Cargo — install via [rustup](https://rustup.rs/)
 - For Spotify: a [Spotify developer app](https://developer.spotify.com/dashboard) — note your **Client ID** and add `http://127.0.0.1` as a redirect host
 - For YouTube Music: a [Google Cloud OAuth 2.0 Desktop client](https://console.cloud.google.com/) with the YouTube Data API v3 enabled — note your **Client ID** and **Client secret**
 
@@ -132,6 +135,19 @@ Commands:
 Options:
       --provider <slug>   Backing provider for the surface (spotify | ymusic).
                           Default: spotify. Available on auth/ask/playlist/export/import.
+      --wait / --no-wait  Sleep through (or fail fast on) an active 429 cooldown
+                          window. Default: wait for ask/playlist, fail-fast for
+                          api/export/import. SPOTIFAI_WAIT overrides the default.
+      --yolo              Run the underlying zag agent with maximum permissions —
+                          skip every per-tool approval prompt. Only meaningful
+                          for ask/playlist; the (provider, profile) policy is
+                          still enforced at the zad layer.
+      --debug             Echo debug-level events to stderr (the file log under
+                          ~/.local/state/spotifai/debug.log captures them either way).
+      --help-agent        Print a compact, prompt-injectable description of
+                          spotifai for splicing into an LLM prompt.
+      --debug-agent       Print a compact troubleshooting context block for
+                          prompt injection into a debugging session.
       --version           Print version
 ```
 
