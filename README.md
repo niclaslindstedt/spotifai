@@ -2,16 +2,11 @@
 
 A Rust CLI for managing your music library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify / YouTube Music integration).
 
-[![CI](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml)
-[![Release](https://github.com/niclaslindstedt/spotifai/actions/workflows/release.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/release.yml)
-[![Pages](https://github.com/niclaslindstedt/spotifai/actions/workflows/pages.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/pages.yml)
-[![Crates.io](https://img.shields.io/crates/v/spotifai.svg)](https://crates.io/crates/spotifai)
-[![Downloads](https://img.shields.io/crates/d/spotifai.svg)](https://crates.io/crates/spotifai)
-[![docs.rs](https://img.shields.io/docsrs/spotifai)](https://docs.rs/spotifai)
-[![Rust](https://img.shields.io/badge/rust-1.88%2B-93450a.svg)](Cargo.toml)
-[![OSS_SPEC](https://img.shields.io/badge/OSS__SPEC-2.6-1f4e79.svg)](OSS_SPEC.md)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![ci](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/ci.yml)
+[![release](https://github.com/niclaslindstedt/spotifai/actions/workflows/release.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/release.yml)
+[![pages](https://github.com/niclaslindstedt/spotifai/actions/workflows/pages.yml/badge.svg)](https://github.com/niclaslindstedt/spotifai/actions/workflows/pages.yml)
+[![crates](https://img.shields.io/crates/v/spotifai.svg)](https://crates.io/crates/spotifai)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Why?
 
