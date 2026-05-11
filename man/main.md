@@ -115,6 +115,8 @@ Per-playlist or per-track failures inside the loop accumulate into the final sum
 | `--debug`         | bool | false | Echo `debug`-level diagnostics to stderr in addition to the always-on `debug.log`. The log file captures `debug` regardless of this flag (§19.2 / §19.3). Global — works on every subcommand. |
 | `--help-agent`    | bool | false | Print a compact, prompt-injectable description of `spotifai` to stdout and exit (§12.1). Designed to be spliced into an LLM prompt via command substitution: `claude "$(spotifai --help-agent) — list my playlists"`. |
 | `--debug-agent`   | bool | false | Print a compact troubleshooting context block — log paths, config locations, env vars, common failure modes — to stdout and exit (§12.2). Designed for command substitution into a debugging prompt. |
+| `--wait`          | bool | (see below) | When the active provider is in a 429 cooldown window (deadline persisted by zad 0.8.0 at `~/.zad/state/<service>/rate_limit.json`), sleep until the deadline and continue instead of failing fast. No-op when no cooldown is recorded. Default: `true` for the interactive surfaces (`ask`, `playlist`) so multiple sub-agents coordinate cleanly; `false` for one-shot commands (`api`, `export`, `import`) so a user-driven invocation surfaces 429s loudly. The `SPOTIFAI_WAIT` env var overrides the default; an explicit flag overrides both. Global — works on every subcommand. |
+| `--no-wait`       | bool | (see above) | Force fail-fast behaviour even when `SPOTIFAI_WAIT=1` is set. Mutually exclusive with `--wait`. |
 | `--version`       | bool | false | Print version and exit. |
 | `--help`          | bool | false | Print help and exit. |
 
@@ -176,6 +178,7 @@ verbosity tweaks; the default is `debug`.
 |---|---|
 | `SPOTIFAI_PROVIDER` | Read by `spotifai api` to pick the zad subcommand and the matching `<provider>/` directory under `~/.spotifai/permissions/`. Set on the user's behalf by `ask` / `playlist` / `export`; defaults to `spotify` when unset for backwards compatibility. |
 | `SPOTIFAI_PROFILE`  | Read by `spotifai api` to pick the profile file under the active provider's directory (`ask.toml` / `playlist.toml`). Required for `api` to run; missing or unknown values exit with a usage error. |
+| `SPOTIFAI_WAIT`     | Read by every `spotifai` invocation to decide whether to sleep through an active 429 cooldown (`1`/`true`/`yes`/`on` → wait; `0`/`false`/`no`/`off` → fail-fast). Set on the user's behalf by `spotifai ask` and `spotifai playlist` to `1` so child `spotifai api` shells coordinate. The CLI `--wait` / `--no-wait` flags override the env var. |
 | `SPOTIFAI_LOG`      | [`tracing_subscriber::EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html) directive controlling the verbosity of the `debug.log` writer. Defaults to `debug`. |
 
 ## Exit codes

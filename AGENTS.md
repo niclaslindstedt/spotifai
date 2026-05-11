@@ -52,20 +52,40 @@ Both upstream tools are consumed as **Rust libraries** via crates.io:
   server). Use the in-process API directly — do not shell out.
 
 - **zad** ([niclaslindstedt/zad](https://github.com/niclaslindstedt/zad)) —
-  the [`zad`](https://crates.io/crates/zad) crate. Spotifai uses
+  the [`zad`](https://crates.io/crates/zad) crate (≥ 0.8.0). Spotifai uses
   `zad::service::spotify::Spotify` and `zad::service::ymusic::Ymusic`
   (typed facades), `zad::service::spotify::SpotifyHttp` /
   `zad::service::ymusic::YmusicHttp` (raw HTTP for verbs the facade does
   not yet expose), `zad::oauth::run_loopback_flow` (in-process OAuth),
-  `zad::secrets::{store, load, account, Scope}` (OS keychain), and
-  `zad::permissions::{signing, trust}` (Ed25519 trust store). All
-  spotifai-side helpers are bundled in [`src/zad_client.rs`](src/zad_client.rs).
+  `zad::secrets::{store, load, account, Scope}` (OS keychain),
+  `zad::permissions::{signing, trust}` (Ed25519 trust store), and
+  `zad::rate_limit` (cross-process 429 coordination — `precall_check`
+  is consulted before every zad call so sibling processes do not burn
+  quota during an active cooldown window). All spotifai-side helpers
+  are bundled in [`src/zad_client.rs`](src/zad_client.rs).
   Bump zad's version in `Cargo.toml` like any other Rust dep.
 
 When bumping zad, run `cargo test` and exercise `spotifai auth`,
 `spotifai api`, and `spotifai export|import` against a real account
 locally — zad's typed surface is still evolving and request/response
 shapes shift between minor releases.
+
+### Rate-limit coordination
+
+Spotify and YouTube Music enforce rolling-window rate limits per
+application. zad 0.8.0 records the deadline from any 429 response at
+`~/.zad/state/<service>/rate_limit.json` and exposes
+`zad::rate_limit::precall_check(service, wait)` so every caller —
+inside the current process and any sibling `spotifai api` shell — can
+gate its calls behind the shared deadline. `spotifai ask` and
+`spotifai playlist` set `SPOTIFAI_WAIT=1` so the sub-agent fan-out
+sleeps through cooldowns instead of retrying into a longer ban; the
+one-shot commands default to fail-fast. The plumbing lives in
+`src/zad_client.rs` (`precall_check`, `wait_mode_with_default`,
+`SPOTIFAI_WAIT_ENV`) and is invoked from `api.rs`, `export.rs`, and
+`import.rs` before every zad call. The system prompts under
+`prompts/ask/` and `prompts/playlist/` instruct sub-agents to respect
+429s and never pass `--no-wait`.
 
 ### Permissions files (`~/.spotifai/permissions/<provider>/<profile>.toml`)
 

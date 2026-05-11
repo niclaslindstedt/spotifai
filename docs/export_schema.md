@@ -152,9 +152,9 @@ have `albums: []`.
   (`tracks_unresolved`) and skipped. Playlists are never aborted by
   unresolved tracks.
 
-## Pagination caveat (zad 0.6.4)
+## Pagination caveat (zad 0.8.0)
 
-zad 0.6.4's typed facades cap most list endpoints at 50 items and
+zad 0.8.0's typed facades cap most list endpoints at 50 items and
 do not yet expose `offset`. The export is therefore best-effort up
 to 50 saved tracks, 50 saved albums, 50 playlists, and 50 tracks
 per playlist. Heavier libraries are truncated and a warning is

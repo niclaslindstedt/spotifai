@@ -30,9 +30,9 @@ The command is deterministic — no LLM in the loop. Reads happen through the in
 
 The JSON document goes to stdout by default, so `spotifai export | jq …` and `spotifai export > library.json` work as expected. Status messages (`== spotifai export (Spotify) ==`, the permissions banner, the per-step summary line) always go to stderr so they never contaminate the JSON pipeline. Pass `--output PATH` to write straight to a file; parent directories are created if needed.
 
-### Pagination caveat (zad 0.6.4)
+### Pagination caveat (zad 0.8.0)
 
-zad 0.6.4's typed facades cap most list endpoints at 50 items per call and do not yet expose `offset`. The export is therefore best-effort up to 50 saved tracks, 50 saved albums, 50 playlists, and 50 tracks per playlist. Heavier libraries are truncated and a warning is emitted to stderr per category that hit the cap. A future zad release that surfaces pagination will lift this transparently — no schema change required.
+zad 0.8.0's typed facades cap most list endpoints at 50 items per call and do not yet expose `offset`. The export is therefore best-effort up to 50 saved tracks, 50 saved albums, 50 playlists, and 50 tracks per playlist. Heavier libraries are truncated and a warning is emitted to stderr per category that hit the cap. A future zad release that surfaces pagination will lift this transparently — no schema change required.
 
 ## Output schema
 
@@ -68,12 +68,15 @@ See [`docs/export_schema.md`](../docs/export_schema.md) for the authoritative re
 | `--output PATH`, `-o PATH` | path | — | Write the JSON document to this file instead of stdout. Parent directories are created if needed. |
 | `--pretty` | bool | false | Pretty-print the JSON with two-space indent. Without this flag the document is one dense line, which is what most downstream tooling (importers, diffs) prefers. |
 
+The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `spotifai export` defaults to fail-fast (`--no-wait`) so a user-driven export surfaces 429s immediately instead of stalling silently; pass `--wait` when running concurrently with `spotifai ask` / `spotifai playlist` to share their cooldown coordination.
+
 ## Environment variables
 
 | Variable | Read / set | Description |
 |---|---|---|
 | `SPOTIFAI_PROVIDER` | set | Set to the active provider slug for the duration of the export so any spotifai helper that consults the variable resolves to the same provider the export is using. Not propagated outside the process. |
 | `SPOTIFAI_PROFILE` | set | Set to `ask` for the duration of the export so any spotifai helper that consults the variable resolves to the same profile file the export uses. Not propagated outside the process. |
+| `SPOTIFAI_WAIT` | read | Same semantics as for `spotifai api`: `1` → sleep through an active 429 cooldown window before each zad call; `0` → fail fast. Defaults to fail-fast for a direct `spotifai export` invocation. The CLI `--wait` / `--no-wait` flags override the env var. |
 | `ZAD_PERMISSIONS_PATH` | set | Pinned to `~/.spotifai/permissions/<provider>/ask.toml` for the duration of the export. zad's library-side trust check honours this variable as an explicit override that bypasses the cwd-derived project slug. |
 
 OAuth tokens are read from the OS keychain by zad on every call; no environment variable is consulted for credentials.

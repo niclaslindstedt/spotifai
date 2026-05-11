@@ -29,11 +29,19 @@ The optional positional argument becomes the agent's first turn — usually a br
 
 ## Flags
 
-`spotifai playlist` owns `--provider`. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
+`spotifai playlist` owns `--provider`. The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply — `spotifai playlist` defaults to `--wait` so the curator and its fan-out of search-subagents coordinate on shared rate-limit cooldowns. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
+
+## Rate-limit coordination
+
+The curator workflow fans out search work across many sub-agents that all shell into `spotifai api search …`. Spotify (and YouTube Music) enforce rolling-window rate limits per application, and repeated 429s escalate to a longer cooldown that affects every sibling at once. `spotifai playlist` sets `SPOTIFAI_WAIT=1` on its own process so every child `spotifai api` invocation consults zad 0.8.0's shared deadline file at `~/.zad/state/<service>/rate_limit.json` and sleeps through any active cooldown window. The system prompt tells sub-agents not to retry-storm on 429 and not to pass `--no-wait`, so a single misbehaving subagent cannot starve the rest of the fan-out. Pass `--no-wait` on the parent invocation to opt out — every sub-agent will then fail fast instead.
 
 ## Environment variables
 
-`spotifai playlist` reads no environment variables of its own. `spotifai playlist` *sets* `SPOTIFAI_PROVIDER` and `SPOTIFAI_PROFILE` on its own process so child `spotifai api` shells route to the same `(provider, playlist)` policy file the prompt was rendered with.
+`spotifai playlist` reads no environment variables of its own beyond the wait-mode override below. `spotifai playlist` *sets* `SPOTIFAI_PROVIDER`, `SPOTIFAI_PROFILE`, and `SPOTIFAI_WAIT` on its own process so child `spotifai api` shells route to the same `(provider, playlist)` policy file the prompt was rendered with and respect the same rate-limit-wait policy.
+
+| Variable | Read / set | Description |
+|---|---|---|
+| `SPOTIFAI_WAIT` | read & set | When unset, defaults to `1` for `spotifai playlist` so child shells (the curator's search-subagent fan-out) sleep through any active 429 cooldown instead of fanning more requests at the wall. `--wait` / `--no-wait` on the command line override the default. Whatever value is resolved is then exported so every sub-agent's `spotifai api` invocation inherits the same policy. |
 
 ## Permissions
 

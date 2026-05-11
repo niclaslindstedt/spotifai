@@ -49,11 +49,19 @@ pub fn print_help_agent() {
     );
     let _ = writeln!(
         out,
+        "  --wait | --no-wait      Sleep through (or fail fast on) an active 429 cooldown window recorded by zad 0.8.0 at ~/.zad/state/<service>/rate_limit.json. Default: wait for ask|playlist, fail-fast for one-shot commands. SPOTIFAI_WAIT overrides the default."
+    );
+    let _ = writeln!(
+        out,
         "  SPOTIFAI_PROVIDER       Active provider read by `spotifai api` (set on your behalf by parent commands)."
     );
     let _ = writeln!(
         out,
         "  SPOTIFAI_PROFILE        Active permission profile read by `spotifai api` (`ask` or `playlist`)."
+    );
+    let _ = writeln!(
+        out,
+        "  SPOTIFAI_WAIT           Set to 1 by `spotifai ask` and `spotifai playlist` so child `spotifai api` shells sleep through 429 cooldowns instead of erroring out."
     );
     let _ = writeln!(
         out,

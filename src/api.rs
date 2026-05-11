@@ -37,14 +37,21 @@ pub const SPOTIFAI_PROFILE_ENV: &str = "SPOTIFAI_PROFILE";
 pub const SPOTIFAI_PROVIDER_ENV: &str = "SPOTIFAI_PROVIDER";
 
 /// Run the typed dispatcher against the active provider/profile.
-pub fn forward(user_args: &[String]) -> Result<()> {
+///
+/// `wait` controls how a still-active 429 cooldown (persisted by zad
+/// 0.8.0 in `~/.zad/state/<service>/rate_limit.json`) is treated:
+/// `true` sleeps until the deadline, `false` fails fast. The flag is
+/// usually inherited from the [`crate::zad_client::SPOTIFAI_WAIT_ENV`]
+/// env var so that sub-agents spawned by `spotifai ask` /
+/// `spotifai playlist` coordinate automatically with their siblings.
+pub fn forward(user_args: &[String], wait: bool) -> Result<()> {
     let provider = active_provider()?;
     let profile = active_profile()?;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("building tokio runtime")?;
-    rt.block_on(dispatch(provider, profile, user_args))
+    rt.block_on(dispatch(provider, profile, user_args, wait))
 }
 
 /// Read [`SPOTIFAI_PROFILE_ENV`] and parse it into a [`Profile`].
@@ -493,9 +500,20 @@ fn parse_search_limit(s: &str) -> Result<u32> {
 // Dispatch
 // ---------------------------------------------------------------------------
 
-async fn dispatch(provider: Provider, _profile: Profile, user_args: &[String]) -> Result<()> {
+async fn dispatch(
+    provider: Provider,
+    _profile: Profile,
+    user_args: &[String],
+    wait: bool,
+) -> Result<()> {
     let verb = parse_verb(provider, user_args)?;
     let output = output_opts(&verb);
+    // One pre-call gate per `spotifai api` invocation is enough — each
+    // verb is a single zad operation (or a tight pair of calls on the
+    // typed-facade-plus-raw-HTTP path). Sibling processes that just
+    // got 429'd will have written the deadline, and zag's sub-agent
+    // tree retries this `spotifai api` shell call sequentially.
+    zad_client::precall_check(provider, wait).await?;
     let mut value = match provider {
         Provider::Spotify => dispatch_spotify(verb).await?,
         Provider::YouTubeMusic => dispatch_ymusic(verb).await?,

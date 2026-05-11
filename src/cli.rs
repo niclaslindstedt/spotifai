@@ -55,6 +55,23 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub debug_agent: bool,
 
+    /// When the active provider is in a 429 cooldown window (deadline
+    /// persisted at `~/.zad/state/<service>/rate_limit.json` by zad
+    /// 0.8.0), sleep until the deadline and continue instead of
+    /// failing fast. Safe to leave on permanently — it is a no-op
+    /// when no cooldown is recorded. `spotifai ask` and
+    /// `spotifai playlist` set `SPOTIFAI_WAIT=1` for the child
+    /// `spotifai api` shells so sub-agents inherit it automatically.
+    /// `--no-wait` overrides the env var.
+    #[arg(long, global = true, overrides_with = "no_wait")]
+    pub wait: bool,
+
+    /// Force fail-fast behaviour on an active rate-limit window even
+    /// when `SPOTIFAI_WAIT=1` is set in the environment. Mutually
+    /// exclusive with `--wait`.
+    #[arg(long = "no-wait", global = true, overrides_with = "wait")]
+    pub no_wait: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -326,6 +343,17 @@ pub fn run() -> Result<()> {
         help_agent::print_debug_agent();
         return Ok(());
     }
+    // For one-shot commands (`api`, `export`, `import`) the default
+    // is fail-fast — they are user-driven and a hard error is more
+    // useful than a long silent sleep. For the interactive agent
+    // surfaces (`ask`, `playlist`) the default is wait=true because
+    // those spawn sub-agents that hammer `spotifai api` in parallel
+    // and any one of them tripping a 429 would otherwise abort the
+    // session. Both behaviours are overridden by explicit
+    // `--wait` / `--no-wait` on the command line, or by setting
+    // `SPOTIFAI_WAIT=1` / `=0` in the environment.
+    let wait_oneshot = resolve_wait_flag(cli.wait, cli.no_wait, false);
+    let wait_session = resolve_wait_flag(cli.wait, cli.no_wait, true);
     match cli.command {
         None => {
             output::plain(&format!("spotifai {}", crate::version()));
@@ -335,14 +363,18 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         Some(Command::Install(_)) => guided_install(),
-        Some(Command::Api(args)) => api::forward(&args.args),
+        Some(Command::Api(args)) => api::forward(&args.args, wait_oneshot),
         Some(Command::Ask(args)) => {
             let query = if args.query.is_empty() {
                 None
             } else {
                 Some(args.query.join(" "))
             };
-            ask::run(args.provider.into_provider(), query.as_deref())
+            ask::run(
+                args.provider.into_provider(),
+                query.as_deref(),
+                wait_session,
+            )
         }
         Some(Command::Playlist(args)) => {
             let query = if args.query.is_empty() {
@@ -350,23 +382,52 @@ pub fn run() -> Result<()> {
             } else {
                 Some(args.query.join(" "))
             };
-            playlist::run(args.provider.into_provider(), query.as_deref())
+            playlist::run(
+                args.provider.into_provider(),
+                query.as_deref(),
+                wait_session,
+            )
         }
         Some(Command::Auth(args)) => auth::run(args.provider.into_provider(), &args.args),
         Some(Command::Export(args)) => export::run(
             args.provider.into_provider(),
             args.output.as_deref(),
             args.pretty,
+            wait_oneshot,
         ),
         Some(Command::Import(args)) => import::run(
             args.provider.into_provider(),
             args.input.as_deref(),
             args.dry_run,
+            wait_oneshot,
         ),
         Some(Command::Commands(args)) => commands_index::run(args.name.as_deref(), args.examples),
         Some(Command::Man(args)) => manpages::run(args.command.as_deref()),
         Some(Command::Docs(args)) => topic_docs::run(args.topic.as_deref()),
     }
+}
+
+/// Combine the CLI `--wait` / `--no-wait` flags with the
+/// [`crate::zad_client::SPOTIFAI_WAIT_ENV`] environment variable into
+/// the single boolean the rest of the codebase consults.
+///
+/// Resolution order:
+///
+/// 1. `--no-wait` on the command line → always `false`.
+/// 2. `--wait` on the command line → always `true`.
+/// 3. Otherwise, defer to `SPOTIFAI_WAIT` in the environment.
+/// 4. Otherwise, fall back to `default_wait` (caller-supplied — the
+///    interactive surfaces pick `true` to keep sub-agents coordinated,
+///    one-shot commands pick `false` for fail-fast behaviour).
+pub fn resolve_wait_flag(wait_cli: bool, no_wait_cli: bool, default_wait: bool) -> bool {
+    let cli = if no_wait_cli {
+        Some(false)
+    } else if wait_cli {
+        Some(true)
+    } else {
+        None
+    };
+    crate::zad_client::wait_mode_with_default(cli, default_wait)
 }
 
 /// Walk the user through the three steps that make spotifai's

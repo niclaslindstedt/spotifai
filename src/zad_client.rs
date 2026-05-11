@@ -22,11 +22,84 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use zad::oauth::KeychainRefreshStore;
+use zad::rate_limit;
 use zad::secrets::{self, Scope};
 use zad::service::spotify::{Spotify, SpotifyCredentials, SpotifyHttp};
 use zad::service::ymusic::{Ymusic, YmusicCredentials, YmusicHttp};
 
 use crate::providers::Provider;
+
+/// Env var read by every spotifai surface to decide whether a stale
+/// rate-limit window should block (`SPOTIFAI_WAIT=1`) or fail fast
+/// (unset / `0`).
+///
+/// `spotifai ask` and `spotifai playlist` set this to `1` so every
+/// child `spotifai api` invocation a sub-agent spawns inherits
+/// "respect the cooldown" behaviour automatically. Spotify enforces
+/// rolling-window rate limits per *application*, so multiple agents
+/// hammering the same client at once will trip 429s without this
+/// coordination. A single shared on-disk deadline (zad 0.8.0
+/// `~/.zad/state/<service>/rate_limit.json`) is what lets sibling
+/// processes coordinate; this flag governs how each one reacts when
+/// the deadline is in the future.
+pub const SPOTIFAI_WAIT_ENV: &str = "SPOTIFAI_WAIT";
+
+/// Resolve the active wait-mode from the CLI flag, the env var, and
+/// a caller-supplied default.
+///
+/// CLI takes precedence when explicitly set. An unset CLI flag falls
+/// back to [`SPOTIFAI_WAIT_ENV`] (`1`/`true`/`yes`/`on` → wait;
+/// `0`/`false`/`no`/`off` → fail-fast). When neither is set the
+/// `default_wait` argument decides — interactive surfaces pass `true`
+/// so multi-agent sessions coordinate; one-shot commands pass `false`
+/// so user-driven invocations surface 429s instead of sleeping
+/// silently. Sub-agents that spawn `spotifai api` inherit the env var
+/// `spotifai ask` / `spotifai playlist` set, so the whole agent tree
+/// shares one switch.
+pub fn wait_mode_with_default(cli_flag: Option<bool>, default_wait: bool) -> bool {
+    if let Some(b) = cli_flag {
+        return b;
+    }
+    match std::env::var(SPOTIFAI_WAIT_ENV) {
+        Ok(v) => match v.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" | "" => false,
+            _ => default_wait,
+        },
+        Err(_) => default_wait,
+    }
+}
+
+/// Convenience wrapper around [`wait_mode_with_default`] for callers
+/// that want the historical "fail-fast by default" behaviour.
+pub fn wait_mode(cli_flag: Option<bool>) -> bool {
+    wait_mode_with_default(cli_flag, false)
+}
+
+/// zad's per-service slug used as the directory under
+/// `~/.zad/state/<service>/` for the shared rate-limit deadline file.
+/// Kept independent of [`Provider::as_str`] so renames stay localized.
+pub fn rate_limit_service(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Spotify => "spotify",
+        Provider::YouTubeMusic => "ymusic",
+    }
+}
+
+/// Consult zad's shared rate-limit state before issuing a zad call.
+///
+/// With `wait = true` and a still-active 429 deadline persisted by a
+/// sibling process, this sleeps until the deadline. With `wait =
+/// false` it returns an error wrapping [`zad::ZadError::RateLimited`]
+/// so the caller fails fast. With no recorded deadline it is a
+/// no-op regardless of `wait`. Always safe to call before every zad
+/// operation; the typical fast path is one disk stat.
+pub async fn precall_check(provider: Provider, wait: bool) -> Result<()> {
+    let service = rate_limit_service(provider);
+    rate_limit::precall_check(service, wait)
+        .await
+        .map_err(|e| anyhow!("{e}"))
+}
 
 /// Per-provider self-identifier captured at OAuth time.
 ///
@@ -120,7 +193,7 @@ pub fn load_spotify_all() -> Result<Spotify> {
 }
 
 /// Build the underlying [`SpotifyHttp`] directly. Needed for verbs
-/// the typed facade does not yet expose in zad 0.6.5
+/// the typed facade does not yet expose in zad 0.8.0
 /// (`add_playlist_tracks`, `list_saved_albums`, `list_my_playlists`,
 /// `get_playlist_tracks`).
 pub fn load_spotify_http(scopes: BTreeSet<String>) -> Result<SpotifyHttp> {

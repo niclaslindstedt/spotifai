@@ -2,7 +2,7 @@
 //! a system prompt that explains how to drive `spotifai api …` and
 //! injects the local permissions file so the agent self-restricts.
 //!
-//! The system prompt template lives at `prompts/ask/1_1_1.md` and is
+//! The system prompt template lives at `prompts/ask/1_2_0.md` and is
 //! baked in at compile time via `include_str!`. It is rendered with
 //! the active provider's display name and example block, plus the
 //! `(provider, profile)` permissions policy. The agent runs
@@ -17,18 +17,22 @@ use crate::providers::Provider;
 use crate::session;
 
 /// Raw `prompts/ask/<version>.md` file baked in at compile time.
-pub const ASK_PROMPT_RAW: &str = include_str!("../prompts/ask/1_1_1.md");
+pub const ASK_PROMPT_RAW: &str = include_str!("../prompts/ask/1_2_0.md");
 
 /// Run the `ask` command. `initial_prompt` is the user's first
 /// question (the trailing positional arg from the CLI). `None` drops
-/// straight into the interactive session with no opener.
-pub fn run(provider: Provider, initial_prompt: Option<&str>) -> Result<()> {
+/// straight into the interactive session with no opener. `wait`
+/// propagates the [`crate::zad_client::SPOTIFAI_WAIT_ENV`] value to
+/// every child `spotifai api` shell zag spawns so sibling sub-agents
+/// coordinate through zad's shared rate-limit deadline file.
+pub fn run(provider: Provider, initial_prompt: Option<&str>, wait: bool) -> Result<()> {
     session::run_agent(
         provider,
         Profile::Ask,
         "ask",
         ASK_PROMPT_RAW,
         initial_prompt,
+        wait,
     )
 }
 
