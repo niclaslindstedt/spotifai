@@ -28,6 +28,20 @@ For each call, `spotifai api` pins `ZAD_PERMISSIONS_PATH` at the matching `~/.sp
 
 There is intentionally **no** `--provider` flag on `api`: clap's trailing-var-arg parsing would swallow it. Use `SPOTIFAI_PROVIDER` (or, more typically, just the parent `--provider` flag on `ask` / `playlist` / `export` / `import`).
 
+### Verb flags
+
+`search`:
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `--type / -t <kind>` | repeated string | `track` | Item kinds to search (`track`, `album`, `artist`, `playlist` on Spotify; `video`, `playlist`, `channel` on YouTube Music — `track` maps to `video`, `artist` to `channel`). |
+| `--limit / -l <N>` | integer 1–10 | `10` | Page size. Spotify's `/search` caps `limit` at 10. |
+| `--fields / -f <list>` | comma-separated, repeatable | (all) | Project each result item down to just the named fields. Aliases: `title→name`, `artist→artists` (joined to a comma-separated string), `album→album.name`, `duration→duration_ms`. Unknown names fall through to a raw object-key lookup. Use this to slash token cost when an agent consumes the result. |
+| `--format <json\|text>` | enum | `json` | `json` keeps the existing pretty-printed envelope; `text` emits one item per line with the requested fields tab-separated in the order given. `--format text` requires `--fields`. |
+| `--json` / `--pretty` | flag | — | Legacy no-ops that select JSON output. Prefer `--format json`. |
+
+Other verbs (`playlists list/show/create/add`, `library …`) accept `--limit`, `--json`, and `--pretty` only. `--fields` and `--format` are search-only for now.
+
 ## Environment variables
 
 | Variable | Read / set | Description |
@@ -58,6 +72,20 @@ Search the catalogue:
 
 ```sh
 SPOTIFAI_PROFILE=ask spotifai api search "billie jean"
+```
+
+Project a search down to a few fields (small JSON):
+
+```sh
+SPOTIFAI_PROFILE=ask spotifai api search "billie jean" \
+    --fields title,artist,album,id
+```
+
+Drop the JSON envelope entirely — one item per line, tab-separated — for the cheapest agent-readable shape:
+
+```sh
+SPOTIFAI_PROFILE=ask spotifai api search "billie jean" \
+    --fields title,artist,id --format text
 ```
 
 Drive a YouTube Music call directly (rare; usually go through `spotifai ask --provider ymusic`):

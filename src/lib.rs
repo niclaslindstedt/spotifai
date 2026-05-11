@@ -1,6 +1,7 @@
 //! spotifai — A Rust CLI for managing your Spotify library and playlists via natural-language queries, powered by zag (agent) and zad (Spotify integration).
 
 pub mod api;
+pub mod api_fields;
 pub mod ask;
 pub mod auth;
 pub mod cli;
