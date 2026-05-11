@@ -461,15 +461,8 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
             description,
             public,
         } => {
-            let identity = zad_client::read_self_identity(Provider::Spotify)?;
-            let user_id = identity.user_id.ok_or_else(|| {
-                anyhow!(
-                    "Spotify user id missing — re-run `spotifai auth --provider spotify` \
-                     so the `/me` probe can capture it"
-                )
-            })?;
             let client = zad_client::load_spotify_all()?;
-            let req = CreatePlaylistRequest::new(user_id, name, description, public)
+            let req = CreatePlaylistRequest::new(name, description, public)
                 .map_err(|e| anyhow!("invalid create_playlist request: {e}"))?;
             let res = client
                 .create_playlist(req)
