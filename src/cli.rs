@@ -72,6 +72,15 @@ pub struct Cli {
     #[arg(long = "no-wait", global = true, overrides_with = "wait")]
     pub no_wait: bool,
 
+    /// Run the underlying zag agent with maximum permissions — i.e.
+    /// skip every tool-call permission prompt. Only affects the
+    /// interactive surfaces (`ask`, `playlist`). The spotifai
+    /// `(provider, profile)` permissions file is still enforced by
+    /// `spotifai api` at the zad layer; `--yolo` only suppresses
+    /// zag's per-tool approval gating on top of that.
+    #[arg(long, global = true)]
+    pub yolo: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -374,6 +383,7 @@ pub fn run() -> Result<()> {
                 args.provider.into_provider(),
                 query.as_deref(),
                 wait_session,
+                cli.yolo,
             )
         }
         Some(Command::Playlist(args)) => {
@@ -386,6 +396,7 @@ pub fn run() -> Result<()> {
                 args.provider.into_provider(),
                 query.as_deref(),
                 wait_session,
+                cli.yolo,
             )
         }
         Some(Command::Auth(args)) => auth::run(args.provider.into_provider(), &args.args),

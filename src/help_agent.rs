@@ -53,6 +53,10 @@ pub fn print_help_agent() {
     );
     let _ = writeln!(
         out,
+        "  --yolo                  Run the underlying zag agent with maximum permissions — skip every per-tool approval prompt. Only meaningful for ask|playlist. The spotifai (provider, profile) policy file is still enforced at the zad layer, so --yolo cannot widen the allowed verb list."
+    );
+    let _ = writeln!(
+        out,
         "  SPOTIFAI_PROVIDER       Active provider read by `spotifai api` (set on your behalf by parent commands)."
     );
     let _ = writeln!(

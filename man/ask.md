@@ -29,7 +29,7 @@ The optional positional argument becomes the agent's first turn. With no argumen
 
 ## Flags
 
-`spotifai ask` owns `--provider`. The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply — `spotifai ask` defaults to `--wait` so sub-agents coordinate on shared rate-limit cooldowns. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
+`spotifai ask` owns `--provider`. The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply — `spotifai ask` defaults to `--wait` so sub-agents coordinate on shared rate-limit cooldowns. The global `--yolo` flag is also honoured: it forwards `auto_approve(true)` to the underlying zag `AgentBuilder` so the session skips every per-tool approval prompt. The `(provider, profile)` policy file at `~/.spotifai/permissions/<provider>/ask.toml` is still enforced by `spotifai api` at the zad layer, so `--yolo` cannot widen the allowed verb list — it only suppresses zag's tool-approval gating on top. zag's other flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
 
 ## Rate-limit coordination
 

@@ -38,6 +38,7 @@ pub fn run_agent(
     prompt_template: &str,
     initial_prompt: Option<&str>,
     wait: bool,
+    yolo: bool,
 ) -> Result<()> {
     // Always make sure the policy file exists before we read it. The
     // first run creates a default; subsequent runs are a no-op so
@@ -83,6 +84,11 @@ pub fn run_agent(
         provider.display_name()
     ));
     output::info(&format!("permissions: {}", policy_path.display()));
+    if yolo {
+        output::info(
+            "yolo mode: zag tool-call approval prompts are off (spotifai api policy still applies)",
+        );
+    }
     output::info("starting interactive zag session — Ctrl+D to exit\n");
 
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -92,6 +98,7 @@ pub fn run_agent(
     rt.block_on(async move {
         AgentBuilder::new()
             .system_prompt(&system_prompt)
+            .auto_approve(yolo)
             .run(initial_prompt)
             .await
     })

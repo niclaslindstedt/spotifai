@@ -29,7 +29,7 @@ The optional positional argument becomes the agent's first turn — usually a br
 
 ## Flags
 
-`spotifai playlist` owns `--provider`. The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply — `spotifai playlist` defaults to `--wait` so the curator and its fan-out of search-subagents coordinate on shared rate-limit cooldowns. zag's own flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
+`spotifai playlist` owns `--provider`. The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply — `spotifai playlist` defaults to `--wait` so the curator and its fan-out of search-subagents coordinate on shared rate-limit cooldowns. The global `--yolo` flag is also honoured: it forwards `auto_approve(true)` to the underlying zag `AgentBuilder` so the session skips every per-tool approval prompt. The `(provider, profile)` policy file at `~/.spotifai/permissions/<provider>/playlist.toml` is still enforced by `spotifai api` at the zad layer, so `--yolo` cannot widen the allowed verb list (destructive verbs stay denied) — it only suppresses zag's tool-approval gating on top. zag's other flags are not exposed today — configure zag through its own config files (`~/.zag/...`) instead.
 
 ## Rate-limit coordination
 
