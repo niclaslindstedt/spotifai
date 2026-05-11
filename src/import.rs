@@ -28,7 +28,7 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 
 use crate::export_schema::{Envelope, Playlist, SCHEMA_VERSION, Track};
 use crate::output;
@@ -79,13 +79,6 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool) -> Resu
 async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) -> Result<()> {
     use zad::service::spotify::{CreatePlaylistRequest, PlaylistsRequest, SearchRequest};
 
-    let identity = zad_client::read_self_identity(Provider::Spotify)?;
-    let user_id = identity.user_id.clone().ok_or_else(|| {
-        anyhow!(
-            "Spotify user id missing; re-run `spotifai auth --provider spotify` so the \
-             `/me` probe captures it"
-        )
-    })?;
     let client = zad_client::load_spotify_all()?;
     let http = zad_client::load_spotify_http(spotify_import_scopes())?;
 
@@ -157,7 +150,6 @@ async fn run_spotify(envelope: Envelope, dry_run: bool, cross_provider: bool) ->
         }
 
         let req = CreatePlaylistRequest::new(
-            user_id.clone(),
             name.clone(),
             playlist.description.clone(),
             playlist.public.unwrap_or(false),
