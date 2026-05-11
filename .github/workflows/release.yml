@@ -87,6 +87,13 @@ jobs:
         id: crates-auth
         uses: rust-lang/crates-io-auth-action@v1
       - name: Publish spotifai
-        run: cargo publish
+        # `--allow-dirty`: the release job bumps `Cargo.toml` but
+        # does not refresh `Cargo.lock`; `cargo publish` runs its
+        # own build first, which regenerates the lockfile and would
+        # otherwise abort with "files in the working directory
+        # contain changes that were not yet committed". The dirty
+        # file is only the bumped local-package version in
+        # `Cargo.lock` — safe to publish.
+        run: cargo publish --allow-dirty
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
