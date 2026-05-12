@@ -331,40 +331,51 @@ function humanise(slug) {
 // section so the landing page's terminal demo always reflects the
 // canonical first-five-minutes story.
 function extractExamples(readme) {
+  // Pull the first fenced `sh` block under `## Quick start`. The
+  // surrounding prose in README explains the grammar; the block is
+  // structured as: leading `#` lines describe the example, the first
+  // non-`#` line is the command (or pipeline), and `#>` lines capture
+  // the program's stdout/stderr so the website terminal can render
+  // grounded output without re-running anything.
   const m =
-    /^## Quick start\s*\n\s*```sh\n([\s\S]*?)```/m.exec(readme);
+    /^## Quick start\s*\n[\s\S]*?```sh\n([\s\S]*?)```/m.exec(readme);
   if (!m) fail("could not find Quick start fenced block in README.md");
   const text = m[1];
-  // Each example is a comment block followed by one or more shell
-  // lines. Group them so the terminal demo can show meaningful chunks
-  // rather than a wall of text.
   const groups = [];
-  let current = { comment: [], commands: [] };
+  let current = { comment: [], steps: [] };
+  const flush = () => {
+    if (current.steps.length) {
+      groups.push(current);
+      current = { comment: [], steps: [] };
+    }
+  };
   for (const rawLine of text.split("\n")) {
     const line = rawLine.replace(/\s+$/, "");
     if (!line) {
-      if (current.commands.length) {
-        groups.push(current);
-        current = { comment: [], commands: [] };
+      flush();
+      continue;
+    }
+    if (line.startsWith("#>")) {
+      if (!current.steps.length) {
+        fail(`Quick start: output line precedes any command: ${line}`);
       }
+      const stripped = line.replace(/^#>\s?/, "");
+      current.steps[current.steps.length - 1].output.push(stripped);
       continue;
     }
     if (line.startsWith("#")) {
-      if (current.commands.length) {
-        groups.push(current);
-        current = { comment: [], commands: [] };
-      }
+      if (current.steps.length) flush();
       current.comment.push(line.replace(/^#\s?/, ""));
-    } else {
-      current.commands.push(line);
+      continue;
     }
+    current.steps.push({ command: line, output: [] });
   }
-  if (current.commands.length) groups.push(current);
+  flush();
   if (!groups.length) fail("Quick start block contained no example commands");
   return groups.map((g) => ({
     title: g.comment[0] ?? "",
     comment: g.comment.join(" "),
-    commands: g.commands,
+    steps: g.steps,
   }));
 }
 
@@ -405,10 +416,15 @@ export interface MarkdownDoc {
   content: string;
 }
 
+export interface ExampleStep {
+  command: string;
+  output: string[];
+}
+
 export interface ExampleGroup {
   title: string;
   comment: string;
-  commands: string[];
+  steps: ExampleStep[];
 }
 
 export interface LastUpdated {
