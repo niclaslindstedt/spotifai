@@ -9,9 +9,12 @@
 //!   provider and writes the resulting tokens into the OS keychain.
 //! - `api` parses the user-args grammar into typed zad library
 //!   calls and prints JSON to stdout.
-//! - `ask` and `playlist` open interactive zag sessions backed by
-//!   per-profile permissions files and a system prompt that injects
-//!   the active policy.
+//! - `ask`, `playlist`, and `clean` open interactive zag sessions
+//!   backed by per-profile permissions files and a system prompt
+//!   that injects the active policy. `clean` is the destructive
+//!   surface — it strips `search` and the creator verbs and adds
+//!   `playlists delete|remove` and the library-side unsave/unlike
+//!   verbs.
 //! - `export` and `import` round-trip the user's library through
 //!   the unified spotifai schema (see `docs/export_schema.md`).
 //!
@@ -28,8 +31,8 @@ use clap::{Parser, Subcommand};
 use crate::permissions::Profile;
 use crate::providers::Provider;
 use crate::{
-    api, ask, auth, commands_index, export, help_agent, import, install, logging, manpages, output,
-    permissions, playlist, topic_docs,
+    api, ask, auth, clean, commands_index, export, help_agent, import, install, logging, manpages,
+    output, permissions, playlist, topic_docs,
 };
 
 #[derive(Debug, Parser)]
@@ -59,10 +62,11 @@ pub struct Cli {
     /// persisted at `~/.zad/state/<service>/rate_limit.json` by zad
     /// 0.8.0), sleep until the deadline and continue instead of
     /// failing fast. Safe to leave on permanently — it is a no-op
-    /// when no cooldown is recorded. `spotifai ask` and
-    /// `spotifai playlist` set `SPOTIFAI_WAIT=1` for the child
-    /// `spotifai api` shells so sub-agents inherit it automatically.
-    /// `--no-wait` overrides the env var.
+    /// when no cooldown is recorded. The interactive surfaces
+    /// (`spotifai ask`, `spotifai playlist`, `spotifai clean`) set
+    /// `SPOTIFAI_WAIT=1` for the child `spotifai api` shells so
+    /// sub-agents inherit it automatically. `--no-wait` overrides
+    /// the env var.
     #[arg(long, global = true, overrides_with = "no_wait")]
     pub wait: bool,
 
@@ -74,10 +78,10 @@ pub struct Cli {
 
     /// Run the underlying zag agent with maximum permissions — i.e.
     /// skip every tool-call permission prompt. Only affects the
-    /// interactive surfaces (`ask`, `playlist`). The spotifai
-    /// `(provider, profile)` permissions file is still enforced by
-    /// `spotifai api` at the zad layer; `--yolo` only suppresses
-    /// zag's per-tool approval gating on top of that.
+    /// interactive surfaces (`ask`, `playlist`, `clean`). The
+    /// spotifai `(provider, profile)` permissions file is still
+    /// enforced by `spotifai api` at the zad layer; `--yolo` only
+    /// suppresses zag's per-tool approval gating on top of that.
     #[arg(long, global = true)]
     pub yolo: bool,
 
@@ -131,9 +135,9 @@ pub enum Command {
     /// <id>`, `playlists create --name|--title <name>`, `playlists
     /// add <playlist-id> <id…>`, `library tracks list`,
     /// `library albums list` (Spotify), `library list` (YouTube
-    /// Music). Requires a parent command (`ask` or `playlist`) to
-    /// have selected a profile via `SPOTIFAI_PROFILE` — direct
-    /// shell invocations exit with a usage error. The active
+    /// Music). Requires a parent command (`ask`, `playlist`, or
+    /// `clean`) to have selected a profile via `SPOTIFAI_PROFILE` —
+    /// direct shell invocations exit with a usage error. The active
     /// provider is read from `SPOTIFAI_PROVIDER` (default: spotify).
     Api(ApiArgs),
 
@@ -156,6 +160,22 @@ pub enum Command {
     /// anything. The optional positional argument becomes the
     /// agent's first turn.
     Playlist(PlaylistArgs),
+
+    /// Start an interactive zag session for cleaning up the user's
+    /// library on the active provider.
+    ///
+    /// Loads `~/.spotifai/permissions/<provider>/clean.toml`, which
+    /// allows the destructive verbs (`playlists delete`,
+    /// `playlists remove`, `library tracks/albums unsave` on
+    /// Spotify, `library unlike` on YouTube Music) plus the read
+    /// verbs needed to enumerate candidates. `search` and the
+    /// creator verbs (`playlists create|add|rename`,
+    /// `library save|like`) are denied. The system prompt requires
+    /// the agent to enumerate the candidate set, show it to the
+    /// user, and wait for explicit confirmation before every
+    /// destructive call. The optional positional argument becomes
+    /// the agent's first turn.
+    Clean(CleanArgs),
 
     /// Run an in-process OAuth loopback flow for the active
     /// provider and write the resulting tokens into the OS
@@ -255,6 +275,21 @@ pub struct PlaylistArgs {
     /// first turn (e.g. `"a 30-minute focus playlist with no
     /// vocals"`). Omit to drop straight into the interactive
     /// session with no opener.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub query: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CleanArgs {
+    /// Backing music provider whose library to clean up
+    /// (default: `spotify`).
+    #[arg(long, value_enum, default_value_t = ProviderArg::default())]
+    pub provider: ProviderArg,
+
+    /// Optional cleanup brief. Joined with spaces and used as the
+    /// agent's first turn (e.g. `"remove all baby songs — my
+    /// child is 15 now"`). Omit to drop straight into the
+    /// interactive session with no opener.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub query: Vec<String>,
 }
@@ -399,6 +434,19 @@ pub fn run() -> Result<()> {
                 cli.yolo,
             )
         }
+        Some(Command::Clean(args)) => {
+            let query = if args.query.is_empty() {
+                None
+            } else {
+                Some(args.query.join(" "))
+            };
+            clean::run(
+                args.provider.into_provider(),
+                query.as_deref(),
+                wait_session,
+                cli.yolo,
+            )
+        }
         Some(Command::Auth(args)) => auth::run(args.provider.into_provider(), &args.args),
         Some(Command::Export(args)) => export::run(
             args.provider.into_provider(),
@@ -500,6 +548,9 @@ fn guided_install() -> Result<()> {
     );
     output::info(
         "  • Build a new YouTube Music playlist:  spotifai playlist --provider ymusic \"a 30-min chill playlist\"",
+    );
+    output::info(
+        "  • Clean up your library:               spotifai clean \"remove every saved album from before 2010\"",
     );
     Ok(())
 }

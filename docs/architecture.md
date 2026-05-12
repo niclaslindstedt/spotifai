@@ -13,9 +13,10 @@ src/
   api_fields.rs     — `--fields` / `--format` projection for `api` results
   auth.rs           — `spotifai auth` forwarder to `zad service create <provider>`
   install.rs        — `spotifai install` (zad binary, signing key, signed permissions)
-  session.rs        — shared agent runner used by `ask` and `playlist`
+  session.rs        — shared agent runner used by `ask`, `playlist`, and `clean`
   ask.rs            — `spotifai ask` (read-only zag session)
   playlist.rs       — `spotifai playlist` (one-shot playlist-builder zag session)
+  clean.rs          — `spotifai clean` (destructive library-cleanup zag session)
   export.rs         — `spotifai export` (deterministic JSON dump of the user's library)
   export_schema.rs  — provider-agnostic export envelope
   import.rs         — `spotifai import` (deterministic playlist recreation from an export envelope)
@@ -45,7 +46,7 @@ Neither `zag` nor `zad` imports `spotifai`. The CLI layer never calls a music-se
 
 Spotify and YouTube Music both enforce rolling-window rate limits per application, and the practical consequence of hammering them through a 429 is a longer cooldown that affects every concurrent caller — including unrelated sibling processes that share the OAuth client. zad 0.8.0 introduced a per-service deadline file at `~/.zad/state/<service>/rate_limit.json`: on any 429 response the service client parses `Retry-After`, writes the absolute deadline, and returns `ZadError::RateLimited`. Spotifai calls `zad::rate_limit::precall_check(service, wait)` before every zad operation (`src/api.rs`, `src/export.rs`, `src/import.rs`); with `wait = true` the helper sleeps until the deadline before allowing the call, with `wait = false` it returns the same error so the caller fails fast without burning a request.
 
-The interactive surfaces (`spotifai ask`, `spotifai playlist`) set `SPOTIFAI_WAIT=1` on their own process, so every sub-agent that fans out into `spotifai api …` inherits the same coordination automatically. The one-shot surfaces (`spotifai api`, `export`, `import`) default to fail-fast so a user-driven call surfaces 429s instead of stalling silently. The CLI exposes `--wait` / `--no-wait` global flags as the override.
+The interactive surfaces (`spotifai ask`, `spotifai playlist`, `spotifai clean`) set `SPOTIFAI_WAIT=1` on their own process, so every sub-agent that fans out into `spotifai api …` inherits the same coordination automatically. The one-shot surfaces (`spotifai api`, `export`, `import`) default to fail-fast so a user-driven call surfaces 429s instead of stalling silently. The CLI exposes `--wait` / `--no-wait` global flags as the override.
 
 ## Provider abstraction
 
@@ -55,14 +56,14 @@ The interactive surfaces (`spotifai ask`, `spotifai playlist`) set `SPOTIFAI_WAI
 - The matching zad subcommand (`zad spotify …` / `zad ymusic …`).
 - The zad service slug consumed by `zad service create <slug>`.
 - A human-readable display name for prompts and CLI banners.
-- A default permissions policy per profile (`Profile::Ask`, `Profile::Playlist`) — verbs differ between providers (Spotify exposes `library albums list`; YouTube Music exposes `library list` over rated videos).
+- A default permissions policy per profile (`Profile::Ask`, `Profile::Playlist`, `Profile::Clean`) — verbs differ between providers (Spotify exposes `library albums list`; YouTube Music exposes `library list` over rated videos).
 - A prompt example block — provider-specific `spotifai api` invocations the LLM is expected to use.
 
 Adding another provider (Tidal, Apple Music, …) is a single change in `providers.rs` plus a new `clap::ValueEnum` variant on `cli.rs::ProviderArg`. The rest of the codebase routes through `provider.*` accessors, so the new variant is picked up everywhere automatically.
 
 ## Request flow
 
-1. User runs `spotifai ask --provider <slug> "..."` or `spotifai playlist --provider <slug> "..."`.
+1. User runs `spotifai ask --provider <slug> "..."`, `spotifai playlist --provider <slug> "..."`, or `spotifai clean --provider <slug> "..."`.
 2. `main.rs` parses the query and dispatches via `cli::run` to the matching command module.
 3. The command module picks a `(Provider, Profile)` pair, loads the matching `~/.spotifai/permissions/<provider>/<profile>.toml`, renders the versioned system prompt from `prompts/<name>/<version>.md` with the policy and the provider's example block injected, and sets `SPOTIFAI_PROVIDER` + `SPOTIFAI_PROFILE` (plus `SPOTIFAI_WAIT=1` for the interactive surfaces) so child `spotifai api` shells route to the same file and share the rate-limit cooldown.
 4. zag reasons over the query and emits one or more shell tool calls of the form `spotifai api <verb>`.
@@ -72,7 +73,7 @@ Adding another provider (Tidal, Apple Music, …) is a single change in `provide
 
 ## Prompts
 
-System prompts live under `prompts/<name>/<major>_<minor>_<patch>.md` and are versioned independently of the binary. The version directory acts as a changelog: keep old versions in place and write a new one when the prompt's behaviour changes meaningfully. The current `ask` and `playlist` prompts are templated with three placeholders — `{{ provider_name }}`, `{{ provider_examples }}`, `{{ permissions_block }}` — substituted at runtime from the `(provider, profile)` pair selected by the caller.
+System prompts live under `prompts/<name>/<major>_<minor>_<patch>.md` and are versioned independently of the binary. The version directory acts as a changelog: keep old versions in place and write a new one when the prompt's behaviour changes meaningfully. The current `ask`, `playlist`, and `clean` prompts are templated with three placeholders — `{{ provider_name }}`, `{{ provider_examples }}`, `{{ permissions_block }}` — substituted at runtime from the `(provider, profile)` pair selected by the caller.
 
 ## Cross-cutting concerns
 

@@ -25,7 +25,9 @@
 //! hard-coding `spotify` / `ymusic` strings, so additional providers
 //! land without touching `cli.rs`, `api.rs`, `auth.rs`, etc.
 
-use crate::permissions::{MODE_PLAYLIST_CURATOR, MODE_READ_ONLY, Permissions, Profile};
+use crate::permissions::{
+    MODE_LIBRARY_CLEANUP, MODE_PLAYLIST_CURATOR, MODE_READ_ONLY, Permissions, Profile,
+};
 
 /// Identifier for the music provider an agent surface targets.
 ///
@@ -197,6 +199,34 @@ pub fn spotify_default(profile: Profile) -> Permissions {
                 "library albums unsave".into(),
             ],
         },
+        Profile::Clean => Permissions {
+            mode: MODE_LIBRARY_CLEANUP.to_string(),
+            description:
+                "Cleanup-only access to the Spotify library. The agent may read the user's \
+                 playlists, saved tracks, and saved albums to decide what to clean up, then \
+                 remove items: delete playlists, remove tracks from playlists, unsave tracks, \
+                 unsave albums. The agent must not create playlists, add tracks, rename \
+                 playlists, save anything to the library, or search the public catalogue."
+                    .to_string(),
+            allowed: vec![
+                "playlists list".into(),
+                "playlists show".into(),
+                "library tracks list".into(),
+                "library albums list".into(),
+                "playlists delete".into(),
+                "playlists remove".into(),
+                "library tracks unsave".into(),
+                "library albums unsave".into(),
+            ],
+            denied: vec![
+                "search".into(),
+                "playlists create".into(),
+                "playlists add".into(),
+                "playlists rename".into(),
+                "library tracks save".into(),
+                "library albums save".into(),
+            ],
+        },
     }
 }
 
@@ -253,6 +283,31 @@ pub fn ymusic_default(profile: Profile) -> Permissions {
                 "playlists remove".into(),
                 "library like".into(),
                 "library unlike".into(),
+            ],
+        },
+        Profile::Clean => Permissions {
+            mode: MODE_LIBRARY_CLEANUP.to_string(),
+            description:
+                "Cleanup-only access to the user's YouTube Music data. The agent may read the \
+                 user's playlists and rated videos to decide what to clean up, then remove \
+                 items: delete playlists, remove videos from playlists, and unlike videos. The \
+                 agent must not create playlists, add videos, rename playlists, like videos, \
+                 or search the public catalogue."
+                    .to_string(),
+            allowed: vec![
+                "playlists list".into(),
+                "playlists show".into(),
+                "library list".into(),
+                "playlists delete".into(),
+                "playlists remove".into(),
+                "library unlike".into(),
+            ],
+            denied: vec![
+                "search".into(),
+                "playlists create".into(),
+                "playlists add".into(),
+                "playlists rename".into(),
+                "library like".into(),
             ],
         },
     }

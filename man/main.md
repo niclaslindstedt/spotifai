@@ -10,7 +10,7 @@ spotifai [OPTIONS] [COMMAND]
 
 ## Description
 
-`spotifai` is a thin shell around two upstream tools — **zag** (the LLM agent runtime) and **zad** (the music-service API client). The agent surfaces (`ask`, `playlist`, `export`) target a single backing music **provider** at a time, selected with `--provider <name>` (default: `spotify`). Today the supported providers are:
+`spotifai` is a thin shell around two upstream tools — **zag** (the LLM agent runtime) and **zad** (the music-service API client). The agent surfaces (`ask`, `playlist`, `clean`, `export`) target a single backing music **provider** at a time, selected with `--provider <name>` (default: `spotify`). Today the supported providers are:
 
 | Provider slug | Display name  | Backing zad subcommand |
 |---|---|---|
@@ -25,9 +25,10 @@ Adding another provider is a single change in `src/providers.rs` and is picked u
 |---|---|
 | `install`  | Walk the three-step setup that makes the agent surfaces usable: bootstrap the local Ed25519 signing key in the OS keychain, scaffold every per-`(provider, profile)` file under `~/.spotifai/permissions/<provider>/`, and sign each one so zad's load-time trust check passes. Idempotent. |
 | `auth`     | Run an in-process OAuth loopback flow for the chosen provider and write the resulting tokens into the OS keychain. Spotify uses PKCE (no client secret); YouTube Music uses Google OAuth 2.0 Desktop-app credentials. |
-| `api`      | Dispatch a typed call into the in-process zad library and print the JSON response. Requires the active profile (set by `ask`, `playlist`, `export`, or `import`); direct shell invocations error out. The matching `~/.spotifai/permissions/<provider>/<profile>.toml` is consulted via `ZAD_PERMISSIONS_PATH`. |
+| `api`      | Dispatch a typed call into the in-process zad library and print the JSON response. Requires the active profile (set by `ask`, `playlist`, `clean`, `export`, or `import`); direct shell invocations error out. The matching `~/.spotifai/permissions/<provider>/<profile>.toml` is consulted via `ZAD_PERMISSIONS_PATH`. |
 | `ask`      | Read-only zag session about the user's library on the active provider, with `~/.spotifai/permissions/<provider>/ask.toml` injected into the system prompt. |
 | `playlist` | zag session that builds one new playlist for the user on the active provider, with `~/.spotifai/permissions/<provider>/playlist.toml` injected. Adds `playlists create`, `playlists add`, and `playlists rename`; destructive verbs stay denied. |
+| `clean`    | zag session for destructive library cleanup on the active provider, with `~/.spotifai/permissions/<provider>/clean.toml` injected. Allows `playlists delete`, `playlists remove`, and the library-side unsave/unlike verbs; denies `search` and every creator verb. The system prompt requires the agent to enumerate candidates and wait for explicit user confirmation before every destructive call. |
 | `export`   | Dump the user's library on the active provider — liked tracks/videos, saved albums (Spotify only), and playlists with full ordered track lists — into one structured JSON document. Designed to be portable enough to re-import on another music service later. Defaults to stdout; `--output` redirects to a file. |
 | `import`   | Recreate playlists from a `spotifai export` envelope on the active provider. Reads from stdin by default or `--input PATH`. Same-provider re-imports reuse the embedded IDs; cross-provider migrations (e.g. Spotify → YouTube Music) resolve each track on the target via `zad <provider> search` (ISRC first, then title + primary artist). Existing playlists with the same name are skipped. |
 | `commands` | Machine-readable command index (§12.4). With no argument, lists every command and its usage signature, one per line. With `<name>`, prints the full usage spec for that command. Add `--examples` to print realistic example invocations instead. |
@@ -40,7 +41,7 @@ Adding another provider is a single change in `src/providers.rs` and is picked u
 Walks a three-step guided setup. Each step prints a header so a first-time user can see what is happening.
 
 1. **Bootstrap signing key.** Mints a fresh Ed25519 keypair in the OS keychain (account `zad/signing:v1`) via `zad::permissions::signing::load_or_create_from_keychain` and writes a self-signed empty trust store at `~/.zad/signing/trusted.toml`. Idempotent — when a key already exists, the call returns its fingerprint and leaves the keychain untouched.
-2. **Write default permission profiles.** Scaffolds every `<provider>/<profile>.toml` file under `~/.spotifai/permissions/`. `ask.toml` ships read-only (allows `search`, `playlists list/show`, the read-side library verbs); `playlist.toml` adds `playlists create`, `playlists add`, and `playlists rename` for `spotifai playlist`. Verb names differ between providers — e.g. Spotify exposes `library tracks list` and `library albums list`, while YouTube Music exposes a single `library list` over rated videos. Hand-edits to existing files are preserved across re-runs.
+2. **Write default permission profiles.** Scaffolds every `<provider>/<profile>.toml` file under `~/.spotifai/permissions/`. `ask.toml` ships read-only (allows `search`, `playlists list/show`, the read-side library verbs); `playlist.toml` adds `playlists create`, `playlists add`, and `playlists rename` for `spotifai playlist`; `clean.toml` adds the destructive verbs (`playlists delete`, `playlists remove`, library-side unsave/unlike) for `spotifai clean` and denies `search` and every creator verb. Verb names differ between providers — e.g. Spotify exposes `library tracks list` and `library albums list`, while YouTube Music exposes a single `library list` over rated videos. Hand-edits to existing files are preserved across re-runs.
 3. **Sign permission profiles.** Calls `zad::permissions::signing::sign_unsigned` once per `(provider, profile)` pair and upserts each resulting signature into the per-machine trust store at `~/.zad/signing/trusted.toml`. zad ≥ 0.4.0 fails closed at load time on permission files that are not in the trust store; signing here is what unblocks the first agent surface call. The step runs unconditionally on every `install` invocation, so re-running `spotifai install` after a hand-edit resigns every file.
 
 `spotifai install` takes no flags.
@@ -83,6 +84,17 @@ Start an interactive zag session pre-loaded to build a new playlist on the activ
 | `[query…]` | string | — | Optional brief (e.g. `"a 30-min focus playlist"`). Joined with spaces and used as the agent's first turn. With no argument the session opens empty and waits for the user to type. |
 
 Like `ask`, the agent in `playlist` only talks to the provider through `spotifai api …` and is instructed not to widen the policy itself. Edit `~/.spotifai/permissions/<provider>/playlist.toml` and re-run `spotifai install` to resign the file when you change `allowed` / `denied`.
+
+### `spotifai clean`
+
+Start an interactive zag session pre-loaded for destructive library cleanup on the active provider. Loads `~/.spotifai/permissions/<provider>/clean.toml`, which strips the public-catalogue `search` verb and every creator verb (`playlists create`, `playlists add`, `playlists rename`, library `save`/`like`) and adds the destructive verbs (`playlists delete`, `playlists remove`, `library tracks unsave`, `library albums unsave` on Spotify; `library unlike` on YouTube Music). The system prompt requires the agent to enumerate candidates, render them back to the user, and wait for an explicit affirmative reply before every destructive call. See [`clean.md`](clean.md) for the full reference.
+
+| Argument / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--provider <slug>` | enum | `spotify` | Backing provider whose library to clean up. One of `spotify`, `ymusic`. |
+| `[query…]` | string | — | Optional cleanup brief (e.g. `"remove all baby songs"`). Joined with spaces and used as the agent's first turn. With no argument the session opens empty and waits for the user to type. |
+
+Like `ask` and `playlist`, the agent in `clean` only talks to the provider through `spotifai api …` and is instructed not to widen the policy itself. The `clean` profile is independent of the others — widen or narrow it by editing `~/.spotifai/permissions/<provider>/clean.toml` and re-running `spotifai install` to resign the file.
 
 ### `spotifai export`
 
@@ -177,9 +189,9 @@ verbosity tweaks; the default is `debug`.
 
 | Variable | Description |
 |---|---|
-| `SPOTIFAI_PROVIDER` | Read by `spotifai api` to pick the zad subcommand and the matching `<provider>/` directory under `~/.spotifai/permissions/`. Set on the user's behalf by `ask` / `playlist` / `export`; defaults to `spotify` when unset for backwards compatibility. |
-| `SPOTIFAI_PROFILE`  | Read by `spotifai api` to pick the profile file under the active provider's directory (`ask.toml` / `playlist.toml`). Required for `api` to run; missing or unknown values exit with a usage error. |
-| `SPOTIFAI_WAIT`     | Read by every `spotifai` invocation to decide whether to sleep through an active 429 cooldown (`1`/`true`/`yes`/`on` → wait; `0`/`false`/`no`/`off` → fail-fast). Set on the user's behalf by `spotifai ask` and `spotifai playlist` to `1` so child `spotifai api` shells coordinate. The CLI `--wait` / `--no-wait` flags override the env var. |
+| `SPOTIFAI_PROVIDER` | Read by `spotifai api` to pick the zad subcommand and the matching `<provider>/` directory under `~/.spotifai/permissions/`. Set on the user's behalf by `ask` / `playlist` / `clean` / `export`; defaults to `spotify` when unset for backwards compatibility. |
+| `SPOTIFAI_PROFILE`  | Read by `spotifai api` to pick the profile file under the active provider's directory (`ask.toml` / `playlist.toml` / `clean.toml`). Required for `api` to run; missing or unknown values exit with a usage error. |
+| `SPOTIFAI_WAIT`     | Read by every `spotifai` invocation to decide whether to sleep through an active 429 cooldown (`1`/`true`/`yes`/`on` → wait; `0`/`false`/`no`/`off` → fail-fast). Set on the user's behalf by `spotifai ask`, `spotifai playlist`, and `spotifai clean` to `1` so child `spotifai api` shells coordinate. The CLI `--wait` / `--no-wait` flags override the env var. |
 | `SPOTIFAI_LOG`      | [`tracing_subscriber::EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html) directive controlling the verbosity of the `debug.log` writer. Defaults to `debug`. |
 
 ## Exit codes
@@ -196,6 +208,7 @@ verbosity tweaks; the default is `debug`.
 spotifai --help
 spotifai ask "What are my most-played albums?"
 spotifai playlist --provider ymusic "an upbeat 45-minute commute playlist"
+spotifai clean "remove all baby songs — my child is 15 now"
 spotifai export --provider ymusic --pretty -o ~/backups/ymusic.json
 spotifai export --provider spotify | spotifai import --provider ymusic --dry-run
 spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
@@ -208,5 +221,6 @@ spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
 - [`api.md`](api.md) — `spotifai api` reference
 - [`ask.md`](ask.md) — `spotifai ask` reference
 - [`playlist.md`](playlist.md) — `spotifai playlist` reference
+- [`clean.md`](clean.md) — `spotifai clean` reference
 - [`export.md`](export.md) — `spotifai export` reference
 - [`import.md`](import.md) — `spotifai import` reference

@@ -1,7 +1,8 @@
-//! Shared agent-runner used by `spotifai ask` and `spotifai playlist`.
+//! Shared agent-runner used by `spotifai ask`, `spotifai playlist`,
+//! and `spotifai clean`.
 //!
-//! Both commands follow the same shape: ensure the pinned zad binary
-//! is on disk, scaffold the matching
+//! Every interactive surface follows the same shape: ensure the
+//! pinned zad binary is on disk, scaffold the matching
 //! `~/.spotifai/permissions/<provider>/<profile>.toml` if missing,
 //! render a Markdown prompt template with the policy and the
 //! provider's example block injected, set
