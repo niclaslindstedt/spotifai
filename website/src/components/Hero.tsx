@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Terminal from "./terminal";
 import UpstreamLink from "./UpstreamLink";
 import { sourceData } from "../generated/sourceData";
@@ -6,6 +6,19 @@ import { exampleGroupsToTabs } from "../data/terminalDemos";
 
 const installCommand = `cargo install ${sourceData.name}`;
 const terminalTabs = exampleGroupsToTabs(sourceData.examples);
+
+// Split the description on the literal tokens "zag" and "zad" so each
+// mention renders as an UpstreamLink instead of plain text, keeping
+// every reference to the upstream crates clickable across the site.
+function renderDescriptionWithLinks(text: string) {
+  const parts = text.split(/\b(zag|zad)\b/);
+  return parts.map((part, i) => {
+    if (part === "zag" || part === "zad") {
+      return <UpstreamLink key={i} name={part} />;
+    }
+    return <Fragment key={i}>{part}</Fragment>;
+  });
+}
 
 export default function Hero() {
   const [copied, setCopied] = useState(false);
@@ -46,7 +59,7 @@ export default function Hero() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg text-text-secondary md:text-xl">
-          {sourceData.description}
+          {renderDescriptionWithLinks(sourceData.description)}
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

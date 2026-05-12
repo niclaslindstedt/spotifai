@@ -128,7 +128,7 @@ export default function GettingStarted() {
               <code>
                 <span className="text-accent">$</span> spotifai install{"\n"}
                 <span className="text-accent">$</span> spotifai auth{"\n"}
-                <span className="text-accent">$</span> spotifai ask "What are my most-played albums?"
+                <span className="text-accent">$</span> spotifai ask "What are my most recently added albums?"
               </code>
             </pre>
           </div>
@@ -136,7 +136,7 @@ export default function GettingStarted() {
 
         <p className="mt-10 text-center text-xs text-text-dim">
           Powered by <UpstreamLink name="zag">zag {sourceData.zagVersion}</UpstreamLink> (the AI runtime) and{" "}
-          <UpstreamLink name="zad">zad {sourceData.zadVersion}</UpstreamLink> (the music-service client).
+          <UpstreamLink name="zad">zad {sourceData.zadVersion}</UpstreamLink> (the music-service wrapper for agentic use).
           Released under the {sourceData.license} license.
         </p>
       </div>

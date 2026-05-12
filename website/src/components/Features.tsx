@@ -90,9 +90,9 @@ export default function Features() {
           requests into safe, scoped actions on your{" "}
           {sourceData.providers.map((p) => p.displayName).join(" or ")} library.
           It is built on top of <UpstreamLink name="zag" /> (the AI runtime) and{" "}
-          <UpstreamLink name="zad" /> (the music-service client), and every
-          command has access to just the handful of music-service endpoints it
-          needs &mdash; nothing more.
+          <UpstreamLink name="zad" /> (the music-service wrapper for agentic
+          use), and every command has access to just the handful of
+          music-service endpoints it needs &mdash; nothing more.
         </p>
 
         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

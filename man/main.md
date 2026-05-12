@@ -206,7 +206,7 @@ verbosity tweaks; the default is `debug`.
 
 ```sh
 spotifai --help
-spotifai ask "What are my most-played albums?"
+spotifai ask "What are my most recently added albums?"
 spotifai playlist --provider ymusic "an upbeat 45-minute commute playlist"
 spotifai clean "remove all baby songs — my child is 15 now"
 spotifai export --provider ymusic --pretty -o ~/backups/ymusic.json

@@ -124,7 +124,7 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         exit_codes: COMMON_EXIT_CODES,
         examples: &[
             "spotifai ask",
-            "spotifai ask \"What are my most-played albums?\"",
+            "spotifai ask \"What are my most recently added albums?\"",
             "spotifai ask --provider ymusic \"how many liked videos do I have?\"",
         ],
     },
