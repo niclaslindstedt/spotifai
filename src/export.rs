@@ -13,12 +13,9 @@
 //! ordered set with each track embedded under the same `Track`
 //! schema.
 //!
-//! Pagination: zad 0.8.0's typed facades cap most list endpoints at
-//! 50 items per call and don't expose `offset`. This export is
-//! therefore best-effort up to 50 saved tracks, 50 saved albums, 50
-//! playlists, and 50 tracks per playlist. Heavier libraries will
-//! work once the upstream facade grows pagination — until then
-//! status messages call out anything that hits the cap.
+//! Pagination: zad's typed list endpoints walk the upstream cursor
+//! under the hood when handed `None`, so the export captures the
+//! whole library regardless of size.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,10 +31,6 @@ use crate::output;
 use crate::permissions::{self, Profile};
 use crate::providers::Provider;
 use crate::zad_client;
-
-/// Page size requested from zad's list endpoints. Both providers
-/// cap at 50 today.
-pub const PAGE_SIZE: u32 = 50;
 
 /// Run the export.
 ///
@@ -92,38 +85,30 @@ async fn collect_spotify(wait: bool) -> Result<Envelope> {
     output::info("fetching liked tracks…");
     zad_client::precall_check(Provider::Spotify, wait).await?;
     let saved_tracks = client
-        .saved_tracks(SavedTracksRequest::new(PAGE_SIZE).map_err(map_zad)?)
+        .saved_tracks(SavedTracksRequest::all())
         .await
         .map_err(map_zad)?;
-    warn_if_capped("liked tracks", saved_tracks.len(), PAGE_SIZE as usize);
     output::info(&format!("  {} liked tracks", saved_tracks.len()));
 
     output::info("fetching saved albums…");
     zad_client::precall_check(Provider::Spotify, wait).await?;
-    let saved_albums = http.list_saved_albums(PAGE_SIZE).await.map_err(map_zad)?;
-    warn_if_capped("saved albums", saved_albums.len(), PAGE_SIZE as usize);
+    let saved_albums = http.list_saved_albums(None).await.map_err(map_zad)?;
     output::info(&format!("  {} saved albums", saved_albums.len()));
 
     output::info("fetching playlists…");
     zad_client::precall_check(Provider::Spotify, wait).await?;
     let summaries = client
-        .playlists(PlaylistsRequest::new(PAGE_SIZE).map_err(map_zad)?)
+        .playlists(PlaylistsRequest::all())
         .await
         .map_err(map_zad)?;
-    warn_if_capped("playlists", summaries.len(), PAGE_SIZE as usize);
     output::info(&format!("  {} playlists", summaries.len()));
 
     let mut playlists_with_tracks = Vec::with_capacity(summaries.len());
     for summary in summaries {
         let id = summary.id.clone();
         zad_client::precall_check(Provider::Spotify, wait).await?;
-        match http.get_playlist_tracks(&id, PAGE_SIZE).await {
+        match http.get_playlist_tracks(&id, None).await {
             Ok(items) => {
-                warn_if_capped(
-                    &format!("tracks in playlist `{}`", summary.name),
-                    items.len(),
-                    PAGE_SIZE as usize,
-                );
                 playlists_with_tracks.push((summary, items));
             }
             Err(e) => {
@@ -157,19 +142,17 @@ async fn collect_ymusic(wait: bool) -> Result<Envelope> {
     output::info("fetching liked videos…");
     zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
     let liked_videos = client
-        .liked(LikedRequest::new(PAGE_SIZE).map_err(map_zad)?)
+        .liked(LikedRequest::all())
         .await
         .map_err(map_zad)?;
-    warn_if_capped("liked videos", liked_videos.len(), PAGE_SIZE as usize);
     output::info(&format!("  {} liked videos", liked_videos.len()));
 
     output::info("fetching playlists…");
     zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
     let summaries = client
-        .playlists(PlaylistsRequest::new(PAGE_SIZE).map_err(map_zad)?)
+        .playlists(PlaylistsRequest::all())
         .await
         .map_err(map_zad)?;
-    warn_if_capped("playlists", summaries.len(), PAGE_SIZE as usize);
     output::info(&format!("  {} playlists", summaries.len()));
 
     let mut playlists_with_items = Vec::with_capacity(summaries.len());
@@ -181,13 +164,8 @@ async fn collect_ymusic(wait: bool) -> Result<Envelope> {
             .map(|s| s.title.clone())
             .unwrap_or_else(|| id.clone());
         zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-        match http.get_playlist_items(&id, PAGE_SIZE).await {
+        match http.get_playlist_items(&id, None).await {
             Ok(items) => {
-                warn_if_capped(
-                    &format!("items in playlist `{title_label}`"),
-                    items.len(),
-                    PAGE_SIZE as usize,
-                );
                 playlists_with_items.push((summary, items));
             }
             Err(e) => {
@@ -222,16 +200,6 @@ fn ymusic_export_scopes() -> std::collections::BTreeSet<String> {
     s.insert("library.read".into());
     s.insert("playlists.read".into());
     s
-}
-
-fn warn_if_capped(label: &str, got: usize, cap: usize) {
-    if got >= cap {
-        output::warn(&format!(
-            "{label}: hit the {cap}-item page cap; zad 0.8.0's typed facade does not \
-             yet support pagination, so the export is truncated. Heavier libraries \
-             will need an upstream zad bump."
-        ));
-    }
 }
 
 fn map_zad(e: zad::ZadError) -> anyhow::Error {

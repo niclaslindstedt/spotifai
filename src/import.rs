@@ -90,7 +90,7 @@ async fn run_spotify(
     output::info("fetching existing playlists on target…");
     zad_client::precall_check(Provider::Spotify, wait).await?;
     let existing = client
-        .playlists(PlaylistsRequest::new(50).map_err(map_zad)?)
+        .playlists(PlaylistsRequest::all())
         .await
         .map_err(map_zad)?;
     let existing_names: BTreeSet<String> = existing
@@ -250,7 +250,7 @@ async fn run_ymusic(
     output::info("fetching existing playlists on target…");
     zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
     let existing = client
-        .playlists(PlaylistsRequest::new(50).map_err(map_zad)?)
+        .playlists(PlaylistsRequest::all())
         .await
         .map_err(map_zad)?;
     let existing_names: BTreeSet<String> = existing
