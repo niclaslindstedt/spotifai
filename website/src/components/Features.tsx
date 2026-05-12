@@ -1,3 +1,5 @@
+import InlineCode from "./InlineCode";
+import UpstreamLink from "./UpstreamLink";
 import { sourceData } from "../generated/sourceData";
 
 const providerList = sourceData.providers.map((p) => p.displayName).join(" and ");
@@ -5,27 +7,60 @@ const providerList = sourceData.providers.map((p) => p.displayName).join(" and "
 const features = [
   {
     title: "Plain-English library queries",
-    description: `Ask "what are my most recently added albums?" or "list every playlist with more than 100 tracks." spotifai ask opens a read-only zag session with the right permissions profile injected into the system prompt.`,
+    description: (
+      <>
+        Ask &ldquo;what are my most recently added albums?&rdquo; or &ldquo;list every
+        playlist with more than 100 tracks.&rdquo; <InlineCode>spotifai ask</InlineCode>{" "}
+        starts a read-only chat with your library — the AI can search and look
+        around, but it cannot change anything you have saved.
+      </>
+    ),
     icon: "\u{1F5E3}\u{FE0F}",
   },
   {
     title: "Conversational playlist curator",
-    description: `spotifai playlist builds one new playlist per session. The agent can search, add, and rename — but never delete, never overwrite, never touch your saved library. Hand the brief in plain English and walk away.`,
+    description: (
+      <>
+        <InlineCode>spotifai playlist</InlineCode> builds one new playlist per
+        session. Hand the brief in plain English &mdash; the AI can search, add
+        and rename, but it can never delete a playlist, overwrite your saved
+        library or touch anything you already have.
+      </>
+    ),
     icon: "\u{1F3B7}",
   },
   {
-    title: "Per-command permission profiles",
-    description: `Two profiles per provider — ask.toml is read-only, playlist.toml adds three curator verbs. Both are signed at install time with a per-machine Ed25519 key in the OS keychain. zad fails closed at load time on any unsigned change.`,
+    title: "Locked down by default",
+    description: (
+      <>
+        Every command runs against a short, fixed list of music-service actions
+        &mdash; just enough to do its job, and no more. There is simply no
+        command that can wipe your library, even if the AI goes off the rails.
+      </>
+    ),
     icon: "\u{1F510}",
   },
   {
     title: `${providerList} out of the box`,
-    description: `Switch backends with --provider. Every command (ask, playlist, export, import, auth) respects the flag. Adding a third provider is one new variant in src/providers.rs — the rest of the codebase picks it up automatically.`,
+    description: (
+      <>
+        Switch backends with a single flag. Every command &mdash; ask, playlist,
+        export, import and auth &mdash; works the same way on both services, so
+        you only have to learn one tool.
+      </>
+    ),
     icon: "\u{1F500}",
   },
   {
     title: "Cross-provider library migration",
-    description: `spotifai export | spotifai import is the canonical migration form: dump your Spotify library, recreate the playlists on YouTube Music. Tracks resolve via ISRC, then title + primary artist. Same-name playlists are skipped, so re-runs are idempotent.`,
+    description: (
+      <>
+        <InlineCode>spotifai export | spotifai import</InlineCode> moves your
+        library between services in one pipe. Tracks are matched first by their
+        unique audio code, then by title and artist. Re-runs skip playlists
+        that already exist, so a half-finished migration is safe to repeat.
+      </>
+    ),
     icon: "\u{1F501}",
   },
 ];
@@ -38,9 +73,13 @@ export default function Features() {
           A polite agent for your music library
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-center text-text-secondary">
-          {sourceData.name} is a thin Rust CLI that wires natural-language queries through zag and routes
-          the resulting actions through zad — with per-command permission profiles so the agent only ever
-          uses the verbs you signed off on.
+          {sourceData.name} is a small command-line tool that turns plain-English
+          requests into safe, scoped actions on your{" "}
+          {sourceData.providers.map((p) => p.displayName).join(" or ")} library.
+          It is built on top of <UpstreamLink name="zag" /> (the AI runtime) and{" "}
+          <UpstreamLink name="zad" /> (the music-service client), and every
+          command has access to just the handful of music-service endpoints it
+          needs &mdash; nothing more.
         </p>
 
         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

@@ -4,7 +4,6 @@ import Hero from "./components/Hero";
 import Features from "./components/Features";
 import Providers from "./components/Providers";
 import Permissions from "./components/Permissions";
-import CodeExamples from "./components/CodeExamples";
 import GettingStarted from "./components/GettingStarted";
 import Footer from "./components/Footer";
 import Documentation from "./components/Documentation";
@@ -17,7 +16,6 @@ function LandingPage() {
       <Features />
       <Providers />
       <Permissions />
-      <CodeExamples />
       <GettingStarted />
     </>
   );
