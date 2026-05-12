@@ -567,7 +567,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
         }
         Verb::PlaylistsList { limit } => {
             let client = zad_client::load_spotify_all()?;
-            let req = PlaylistsRequest::new(limit)
+            let req = PlaylistsRequest::new(Some(limit))
                 .map_err(|e| anyhow!("invalid playlists request: {e}"))?;
             let res = client
                 .playlists(req)
@@ -582,7 +582,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
                 .await
                 .map_err(|e| anyhow!("spotify get_playlist failed: {e}"))?;
             let tracks = http
-                .get_playlist_tracks(&id, limit)
+                .get_playlist_tracks(&id, Some(limit))
                 .await
                 .map_err(|e| anyhow!("spotify get_playlist_tracks failed: {e}"))?;
             let mut summary_value = to_value(&summary)?;
@@ -629,7 +629,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
         }
         Verb::SpotifyLibraryTracksList { limit } => {
             let client = zad_client::load_spotify_all()?;
-            let req = SavedTracksRequest::new(limit)
+            let req = SavedTracksRequest::new(Some(limit))
                 .map_err(|e| anyhow!("invalid saved_tracks request: {e}"))?;
             let res = client
                 .saved_tracks(req)
@@ -640,7 +640,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
         Verb::SpotifyLibraryAlbumsList { limit } => {
             let http = zad_client::load_spotify_http(default_spotify_scopes())?;
             let res = http
-                .list_saved_albums(limit)
+                .list_saved_albums(Some(limit))
                 .await
                 .map_err(|e| anyhow!("spotify list_saved_albums failed: {e}"))?;
             Ok(json!({ "items": to_value(&res)? }))
@@ -680,7 +680,7 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
         }
         Verb::PlaylistsList { limit } => {
             let client = zad_client::load_ymusic_all()?;
-            let req = PlaylistsRequest::new(limit)
+            let req = PlaylistsRequest::new(Some(limit))
                 .map_err(|e| anyhow!("invalid playlists request: {e}"))?;
             let res = client
                 .playlists(req)
@@ -695,7 +695,7 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
                 .await
                 .map_err(|e| anyhow!("ymusic get_playlist failed: {e}"))?;
             let items = http
-                .get_playlist_items(&id, limit)
+                .get_playlist_items(&id, Some(limit))
                 .await
                 .map_err(|e| anyhow!("ymusic get_playlist_items failed: {e}"))?;
             let mut summary_value = to_value(&summary)?;
@@ -742,8 +742,8 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
         }
         Verb::YmusicLibraryList { limit } => {
             let client = zad_client::load_ymusic_all()?;
-            let req =
-                LikedRequest::new(limit).map_err(|e| anyhow!("invalid liked request: {e}"))?;
+            let req = LikedRequest::new(Some(limit))
+                .map_err(|e| anyhow!("invalid liked request: {e}"))?;
             let res = client
                 .liked(req)
                 .await

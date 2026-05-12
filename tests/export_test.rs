@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use spotifai::export::{PAGE_SIZE, format_iso8601, iso8601_now};
+use spotifai::export::{format_iso8601, iso8601_now};
 use spotifai::export_schema::{
     Envelope, SCHEMA_VERSION, SpotifyExportData, Track, YmusicExportData,
     build_envelope_from_spotify, build_envelope_from_ymusic,
@@ -21,11 +21,6 @@ use spotifai::export_schema::{
 #[test]
 fn schema_version_is_locked() {
     assert_eq!(SCHEMA_VERSION, "1");
-}
-
-#[test]
-fn page_size_is_fifty() {
-    assert_eq!(PAGE_SIZE, 50);
 }
 
 #[test]

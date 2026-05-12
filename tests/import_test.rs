@@ -17,6 +17,7 @@ fn empty_envelope(service: &str) -> Envelope {
             user: None,
             tool: "spotifai".into(),
             tool_version: "0.0.0".into(),
+            api_calibration: None,
         },
         "2026-01-01T00:00:00Z".into(),
     )
