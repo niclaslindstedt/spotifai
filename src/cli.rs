@@ -322,6 +322,28 @@ pub struct ExportArgs {
     /// downstream tooling (importers, diffs) prefers.
     #[arg(long)]
     pub pretty: bool,
+
+    /// Include liked songs / liked videos in the exported envelope.
+    /// When no `--likes` / `--albums` / `--playlists` flag is
+    /// passed, every bucket is exported (backwards-compatible
+    /// default). When any of the three is set, only the selected
+    /// buckets are fetched — unselected ones are emitted as empty
+    /// arrays. Handy for debugging one surface at a time.
+    #[arg(long)]
+    pub likes: bool,
+
+    /// Include saved albums in the exported envelope. No-op on
+    /// providers without a saved-albums concept (YouTube Music
+    /// emits an empty `albums` array regardless). See `--likes`
+    /// for the selection-flag interaction.
+    #[arg(long)]
+    pub albums: bool,
+
+    /// Include playlists (and each playlist's full ordered track
+    /// list) in the exported envelope. See `--likes` for the
+    /// selection-flag interaction.
+    #[arg(long)]
+    pub playlists: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -452,6 +474,7 @@ pub fn run() -> Result<()> {
             args.provider.into_provider(),
             args.output.as_deref(),
             args.pretty,
+            export::Selection::from_flags(args.likes, args.albums, args.playlists),
             wait_oneshot,
         ),
         Some(Command::Import(args)) => import::run(
