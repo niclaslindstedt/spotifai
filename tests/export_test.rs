@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use spotifai::export::{format_iso8601, iso8601_now};
+use spotifai::export::{Selection, format_iso8601, iso8601_now};
 use spotifai::export_schema::{
     Envelope, SCHEMA_VERSION, SpotifyExportData, Track, YmusicExportData,
     build_envelope_from_spotify, build_envelope_from_ymusic,
@@ -21,6 +21,31 @@ use spotifai::export_schema::{
 #[test]
 fn schema_version_is_locked() {
     assert_eq!(SCHEMA_VERSION, "1");
+}
+
+#[test]
+fn selection_defaults_to_all_when_no_flags_set() {
+    let s = Selection::from_flags(false, false, false);
+    assert_eq!(s, Selection::ALL);
+    assert!(s.likes && s.albums && s.playlists);
+}
+
+#[test]
+fn selection_honors_individual_flags() {
+    let s = Selection::from_flags(true, false, false);
+    assert!(s.likes && !s.albums && !s.playlists);
+    let s = Selection::from_flags(false, false, true);
+    assert!(!s.likes && !s.albums && s.playlists);
+    let s = Selection::from_flags(true, false, true);
+    assert!(s.likes && !s.albums && s.playlists);
+}
+
+#[test]
+fn selection_all_constant_matches_default() {
+    // Passing every flag explicitly should produce the same value
+    // as the `ALL` constant — a regression guard if either side
+    // grows new fields.
+    assert_eq!(Selection::from_flags(true, true, true), Selection::ALL);
 }
 
 #[test]

@@ -32,19 +32,68 @@ use crate::permissions::{self, Profile};
 use crate::providers::Provider;
 use crate::zad_client;
 
+/// Which buckets the export should fetch. `--likes`, `--albums`,
+/// and `--playlists` map onto the three flags below; if none are
+/// set the export fetches every bucket (the legacy behavior the
+/// CLI shipped before the selection flags existed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Selection {
+    pub likes: bool,
+    pub albums: bool,
+    pub playlists: bool,
+}
+
+impl Selection {
+    /// All three buckets enabled — the default when no selection
+    /// flag is passed.
+    pub const ALL: Self = Self {
+        likes: true,
+        albums: true,
+        playlists: true,
+    };
+
+    /// Build a `Selection` from the three CLI booleans. If every
+    /// flag is `false` the user did not opt in to selection at
+    /// all, so default to `ALL` for backwards compatibility.
+    /// Otherwise honor exactly the flags they set.
+    pub fn from_flags(likes: bool, albums: bool, playlists: bool) -> Self {
+        if !likes && !albums && !playlists {
+            return Self::ALL;
+        }
+        Self {
+            likes,
+            albums,
+            playlists,
+        }
+    }
+}
+
 /// Run the export.
 ///
 /// `output_path` redirects the JSON to a file; `None` writes to
-/// stdout. `pretty` toggles two-space indentation. Status messages
-/// always go to stderr via [`crate::output`] so the JSON on stdout
-/// stays pipe-clean.
-pub fn run(provider: Provider, output_path: Option<&Path>, pretty: bool, wait: bool) -> Result<()> {
+/// stdout. `pretty` toggles two-space indentation. `selection`
+/// gates which buckets are fetched; unselected buckets are emitted
+/// as empty arrays. Status messages always go to stderr via
+/// [`crate::output`] so the JSON on stdout stays pipe-clean.
+pub fn run(
+    provider: Provider,
+    output_path: Option<&Path>,
+    pretty: bool,
+    selection: Selection,
+    wait: bool,
+) -> Result<()> {
     // Materialize the read-only profile file before talking to zad
     // so a fresh user gets a sensible default scaffolded.
     let (policy_path, _wrote) = permissions::ensure_default_for(provider, Profile::Ask)?;
 
     output::header(&format!("spotifai export ({})", provider.display_name()));
     output::info(&format!("permissions: {}", policy_path.display()));
+    if selection != Selection::ALL {
+        output::info(&format!(
+            "selection: likes={} albums={} playlists={}",
+            selection.likes, selection.albums, selection.playlists
+        ));
+    }
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -52,8 +101,8 @@ pub fn run(provider: Provider, output_path: Option<&Path>, pretty: bool, wait: b
         .context("building tokio runtime")?;
     let envelope = rt.block_on(async {
         match provider {
-            Provider::Spotify => collect_spotify(wait).await,
-            Provider::YouTubeMusic => collect_ymusic(wait).await,
+            Provider::Spotify => collect_spotify(selection, wait).await,
+            Provider::YouTubeMusic => collect_ymusic(selection, wait).await,
         }
     })?;
 
@@ -75,48 +124,66 @@ pub fn run(provider: Provider, output_path: Option<&Path>, pretty: bool, wait: b
     Ok(())
 }
 
-async fn collect_spotify(wait: bool) -> Result<Envelope> {
+async fn collect_spotify(selection: Selection, wait: bool) -> Result<Envelope> {
     use zad::service::spotify::{PlaylistsRequest, SavedTracksRequest};
 
     let identity = zad_client::read_self_identity(Provider::Spotify)?;
     let client = zad_client::load_spotify_all()?;
     let http = zad_client::load_spotify_http(spotify_export_scopes())?;
 
-    output::info("fetching liked tracks…");
-    zad_client::precall_check(Provider::Spotify, wait).await?;
-    let saved_tracks = client
-        .saved_tracks(SavedTracksRequest::all())
-        .await
-        .map_err(map_zad)?;
-    output::info(&format!("  {} liked tracks", saved_tracks.len()));
-
-    output::info("fetching saved albums…");
-    zad_client::precall_check(Provider::Spotify, wait).await?;
-    let saved_albums = http.list_saved_albums(None).await.map_err(map_zad)?;
-    output::info(&format!("  {} saved albums", saved_albums.len()));
-
-    output::info("fetching playlists…");
-    zad_client::precall_check(Provider::Spotify, wait).await?;
-    let summaries = client
-        .playlists(PlaylistsRequest::all())
-        .await
-        .map_err(map_zad)?;
-    output::info(&format!("  {} playlists", summaries.len()));
-
-    let mut playlists_with_tracks = Vec::with_capacity(summaries.len());
-    for summary in summaries {
-        let id = summary.id.clone();
+    let saved_tracks = if selection.likes {
+        output::info("fetching liked tracks…");
         zad_client::precall_check(Provider::Spotify, wait).await?;
-        match http.get_playlist_tracks(&id, None).await {
-            Ok(items) => {
-                playlists_with_tracks.push((summary, items));
-            }
-            Err(e) => {
-                output::warn(&format!("playlist `{}` ({id}) skipped: {e}", summary.name));
-                playlists_with_tracks.push((summary, Vec::new()));
+        let tracks = client
+            .saved_tracks(SavedTracksRequest::all())
+            .await
+            .map_err(map_zad)?;
+        output::info(&format!("  {} liked tracks", tracks.len()));
+        tracks
+    } else {
+        output::info("skipping liked tracks (not selected)");
+        Vec::new()
+    };
+
+    let saved_albums = if selection.albums {
+        output::info("fetching saved albums…");
+        zad_client::precall_check(Provider::Spotify, wait).await?;
+        let albums = http.list_saved_albums(None).await.map_err(map_zad)?;
+        output::info(&format!("  {} saved albums", albums.len()));
+        albums
+    } else {
+        output::info("skipping saved albums (not selected)");
+        Vec::new()
+    };
+
+    let playlists_with_tracks = if selection.playlists {
+        output::info("fetching playlists…");
+        zad_client::precall_check(Provider::Spotify, wait).await?;
+        let summaries = client
+            .playlists(PlaylistsRequest::all())
+            .await
+            .map_err(map_zad)?;
+        output::info(&format!("  {} playlists", summaries.len()));
+
+        let mut acc = Vec::with_capacity(summaries.len());
+        for summary in summaries {
+            let id = summary.id.clone();
+            zad_client::precall_check(Provider::Spotify, wait).await?;
+            match http.get_playlist_tracks(&id, None).await {
+                Ok(items) => {
+                    acc.push((summary, items));
+                }
+                Err(e) => {
+                    output::warn(&format!("playlist `{}` ({id}) skipped: {e}", summary.name));
+                    acc.push((summary, Vec::new()));
+                }
             }
         }
-    }
+        acc
+    } else {
+        output::info("skipping playlists (not selected)");
+        Vec::new()
+    };
 
     let data = SpotifyExportData {
         user_id: identity.user_id,
@@ -132,45 +199,64 @@ async fn collect_spotify(wait: bool) -> Result<Envelope> {
     ))
 }
 
-async fn collect_ymusic(wait: bool) -> Result<Envelope> {
+async fn collect_ymusic(selection: Selection, wait: bool) -> Result<Envelope> {
     use zad::service::ymusic::{LikedRequest, PlaylistsRequest};
 
     let identity = zad_client::read_self_identity(Provider::YouTubeMusic)?;
     let client = zad_client::load_ymusic_all()?;
     let http = zad_client::load_ymusic_http(ymusic_export_scopes())?;
 
-    output::info("fetching liked videos…");
-    zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-    let liked_videos = client.liked(LikedRequest::all()).await.map_err(map_zad)?;
-    output::info(&format!("  {} liked videos", liked_videos.len()));
-
-    output::info("fetching playlists…");
-    zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-    let summaries = client
-        .playlists(PlaylistsRequest::all())
-        .await
-        .map_err(map_zad)?;
-    output::info(&format!("  {} playlists", summaries.len()));
-
-    let mut playlists_with_items = Vec::with_capacity(summaries.len());
-    for summary in summaries {
-        let id = summary.id.clone();
-        let title_label = summary
-            .snippet
-            .as_ref()
-            .map(|s| s.title.clone())
-            .unwrap_or_else(|| id.clone());
+    let liked_videos = if selection.likes {
+        output::info("fetching liked videos…");
         zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-        match http.get_playlist_items(&id, None).await {
-            Ok(items) => {
-                playlists_with_items.push((summary, items));
-            }
-            Err(e) => {
-                output::warn(&format!("playlist `{title_label}` ({id}) skipped: {e}"));
-                playlists_with_items.push((summary, Vec::new()));
+        let videos = client.liked(LikedRequest::all()).await.map_err(map_zad)?;
+        output::info(&format!("  {} liked videos", videos.len()));
+        videos
+    } else {
+        output::info("skipping liked videos (not selected)");
+        Vec::new()
+    };
+
+    if selection.albums {
+        // YouTube Music has no saved-albums concept; honor `--albums`
+        // by emitting an empty array and a friendly note rather than
+        // erroring, so a Spotify-shaped command line stays portable.
+        output::info("saved albums not supported on YouTube Music — emitting []");
+    }
+
+    let playlists_with_items = if selection.playlists {
+        output::info("fetching playlists…");
+        zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
+        let summaries = client
+            .playlists(PlaylistsRequest::all())
+            .await
+            .map_err(map_zad)?;
+        output::info(&format!("  {} playlists", summaries.len()));
+
+        let mut acc = Vec::with_capacity(summaries.len());
+        for summary in summaries {
+            let id = summary.id.clone();
+            let title_label = summary
+                .snippet
+                .as_ref()
+                .map(|s| s.title.clone())
+                .unwrap_or_else(|| id.clone());
+            zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
+            match http.get_playlist_items(&id, None).await {
+                Ok(items) => {
+                    acc.push((summary, items));
+                }
+                Err(e) => {
+                    output::warn(&format!("playlist `{title_label}` ({id}) skipped: {e}"));
+                    acc.push((summary, Vec::new()));
+                }
             }
         }
-    }
+        acc
+    } else {
+        output::info("skipping playlists (not selected)");
+        Vec::new()
+    };
 
     let data = YmusicExportData {
         channel_id: identity.channel_id,

@@ -6,6 +6,7 @@
 
 ```
 spotifai export [--provider <slug>] [--output PATH] [--pretty]
+                [--likes] [--albums] [--playlists]
 ```
 
 ## Description
@@ -67,6 +68,11 @@ See [`docs/export_schema.md`](../docs/export_schema.md) for the authoritative re
 | `--provider <slug>` | enum | `spotify` | Backing provider whose library to export. One of `spotify`, `ymusic`. |
 | `--output PATH`, `-o PATH` | path | — | Write the JSON document to this file instead of stdout. Parent directories are created if needed. |
 | `--pretty` | bool | false | Pretty-print the JSON with two-space indent. Without this flag the document is one dense line, which is what most downstream tooling (importers, diffs) prefers. |
+| `--likes` | bool | (selection — see below) | Include liked songs / liked videos (the envelope's `tracks` bucket). |
+| `--albums` | bool | (selection — see below) | Include saved albums (the envelope's `albums` bucket). No-op on YouTube Music — `albums` stays `[]` because the YouTube Data API has no saved-albums concept. |
+| `--playlists` | bool | (selection — see below) | Include playlists with their full ordered track lists (the envelope's `playlists` bucket). |
+
+**Selection semantics.** When none of `--likes` / `--albums` / `--playlists` is passed, the export fetches every bucket (the backwards-compatible default). When any of the three is set, only the selected buckets are fetched; unselected buckets are emitted as empty arrays. This is intended for debugging one surface at a time (e.g. `spotifai export --playlists -o test.json` skips the liked-tracks and saved-albums roundtrips so a 0-playlist result is easy to isolate from rate-limit or scope issues).
 
 The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `spotifai export` defaults to fail-fast (`--no-wait`) so a user-driven export surfaces 429s immediately instead of stalling silently; pass `--wait` when running concurrently with `spotifai ask` / `spotifai playlist` to share their cooldown coordination.
 
@@ -115,6 +121,12 @@ Quick check of the export's identifier coverage (how many liked Spotify tracks h
 
 ```sh
 spotifai export | jq '[.tracks[] | select(.isrc)] | length'
+```
+
+Debug a single surface in isolation (skips the liked-tracks and saved-albums fetches so a 0-playlist result is easy to isolate from rate-limit or scope issues):
+
+```sh
+spotifai export --playlists -o test.json
 ```
 
 ## See also
