@@ -1,8 +1,10 @@
 import { useState } from "react";
-import Terminal from "./Terminal";
+import Terminal from "./terminal";
 import { sourceData } from "../generated/sourceData";
+import { exampleGroupsToTabs } from "../data/terminalDemos";
 
 const installCommand = `cargo install ${sourceData.name}`;
+const terminalTabs = exampleGroupsToTabs(sourceData.examples);
 
 export default function Hero() {
   const [copied, setCopied] = useState(false);
@@ -54,7 +56,7 @@ export default function Hero() {
           </span>
         </div>
 
-        <Terminal groups={sourceData.examples} className="mx-auto mt-12 max-w-2xl" />
+        <Terminal tabs={terminalTabs} className="mx-auto mt-12 max-w-2xl" />
 
         <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
           <a
