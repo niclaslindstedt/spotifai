@@ -101,8 +101,10 @@ export default function Features() {
               key={f.title}
               className="group rounded-xl border border-border bg-surface-alt p-6 transition-all hover:border-accent/40 hover:bg-surface-hover"
             >
-              <div className="mb-4 text-2xl">{f.icon}</div>
-              <h3 className="mb-2 text-lg font-semibold text-text-primary">{f.title}</h3>
+              <div className="mb-2 flex items-center gap-3">
+                <span className="text-2xl leading-none">{f.icon}</span>
+                <h3 className="text-lg font-semibold text-text-primary">{f.title}</h3>
+              </div>
               <p className="text-sm leading-relaxed text-text-secondary">{f.description}</p>
             </div>
           ))}
