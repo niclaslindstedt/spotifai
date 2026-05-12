@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Terminal from "./terminal";
+import UpstreamLink from "./UpstreamLink";
 import { sourceData } from "../generated/sourceData";
 import { exampleGroupsToTabs } from "../data/terminalDemos";
 
@@ -22,14 +23,20 @@ export default function Hero() {
       <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 h-[600px] w-[800px] rounded-full bg-accent/5 blur-3xl" />
 
       <div className="relative mx-auto max-w-6xl px-6 text-center">
-        <a
-          href={`${sourceData.repository}/releases`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mb-6 inline-block rounded-full border border-border bg-surface-alt px-4 py-1.5 text-xs text-text-secondary hover:border-accent/50 hover:text-text-primary transition-colors"
-        >
-          v{sourceData.version} &mdash; powered by zag {sourceData.zagVersion} and zad {sourceData.zadVersion}
-        </a>
+        <div className="mb-6 inline-flex flex-wrap items-center justify-center gap-x-1 rounded-full border border-border bg-surface-alt px-4 py-1.5 text-xs text-text-secondary">
+          <a
+            href={`${sourceData.repository}/releases`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-text-primary transition-colors"
+          >
+            v{sourceData.version}
+          </a>
+          <span>&mdash; powered by</span>
+          <UpstreamLink name="zag">zag {sourceData.zagVersion}</UpstreamLink>
+          <span>and</span>
+          <UpstreamLink name="zad">zad {sourceData.zadVersion}</UpstreamLink>
+        </div>
 
         <h1 className="mx-auto max-w-4xl text-4xl leading-tight font-extrabold tracking-tight text-text-primary md:text-6xl md:leading-tight">
           Your music library,{" "}
@@ -51,9 +58,6 @@ export default function Hero() {
               {name}
             </span>
           ))}
-          <span className="rounded-full border border-border bg-surface-alt px-3 py-1 text-sm font-medium text-text-dim">
-            + 1 enum variant from your next provider
-          </span>
         </div>
 
         <Terminal tabs={terminalTabs} className="mx-auto mt-12 max-w-2xl" />

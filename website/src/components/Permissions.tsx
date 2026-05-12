@@ -1,4 +1,5 @@
 import { useState } from "react";
+import InlineCode from "./InlineCode";
 import type { ProviderData, ProviderProfile } from "../generated/sourceData";
 import { sourceData } from "../generated/sourceData";
 
@@ -89,9 +90,7 @@ export default function Permissions() {
           <div className="grid grid-cols-1 gap-6 p-6 md:grid-cols-2">
             <div>
               <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-                <code className="rounded bg-surface px-2 py-0.5 text-accent">
-                  {meta.command}
-                </code>
+                <InlineCode>{meta.command}</InlineCode>
                 <span className="text-text-dim">on</span>
                 <span className="font-semibold text-text-primary">
                   {activeProvider?.displayName}

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import InlineCode from "./InlineCode";
+import UpstreamLink from "./UpstreamLink";
 import { sourceData } from "../generated/sourceData";
 
 const installMethods = [
@@ -71,25 +73,32 @@ export default function GettingStarted() {
     >
       <div className="mx-auto max-w-5xl px-6">
         <h2 className="text-center text-3xl font-bold text-text-primary md:text-4xl">
-          Get started in two commands
+          Install spotifai
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-center text-text-secondary">
-          Install the binary, walk the guided setup, authenticate, and ask your library a question.
+          Pick one of the install options below, complete the one-time
+          prerequisites for the services you want to talk to, and then run the
+          three-line setup at the bottom.
         </p>
 
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {installMethods.map((m) => (
-            <div key={m.title} className="rounded-xl border border-border bg-surface-alt p-5">
-              <h3 className="mb-1 text-sm font-semibold text-text-primary">{m.title}</h3>
-              <p className="mb-3 text-xs text-text-dim">{m.note}</p>
-              <CopyCommand command={m.command} />
-            </div>
-          ))}
+        <div className="mt-12">
+          <h3 className="mb-4 text-center text-sm font-semibold uppercase tracking-wider text-text-dim">
+            1. Install the binary
+          </h3>
+          <div className="grid gap-6 md:grid-cols-3">
+            {installMethods.map((m) => (
+              <div key={m.title} className="rounded-xl border border-border bg-surface-alt p-5">
+                <h3 className="mb-1 text-sm font-semibold text-text-primary">{m.title}</h3>
+                <p className="mb-3 text-xs text-text-dim">{m.note}</p>
+                <CopyCommand command={m.command} />
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="mt-12">
-          <h3 className="mb-4 text-center text-lg font-semibold text-text-primary">
-            Prerequisites
+          <h3 className="mb-4 text-center text-sm font-semibold uppercase tracking-wider text-text-dim">
+            2. One-time prerequisites
           </h3>
           <div className="mx-auto max-w-2xl space-y-2">
             {prereqs.map((p) => (
@@ -104,21 +113,30 @@ export default function GettingStarted() {
           </div>
         </div>
 
-        <div className="mx-auto mt-12 max-w-2xl rounded-xl border border-border bg-surface-alt p-6">
-          <p className="mb-3 text-center text-sm text-text-secondary">
-            Then run the guided setup, authenticate, and ask your first question:
-          </p>
-          <pre className="overflow-x-auto rounded-lg bg-surface p-4 text-sm leading-relaxed text-text-secondary">
-            <code>
-              <span className="text-accent">$</span> spotifai install{"\n"}
-              <span className="text-accent">$</span> spotifai auth{"\n"}
-              <span className="text-accent">$</span> spotifai ask "What are my most-played albums?"
-            </code>
-          </pre>
+        <div className="mx-auto mt-12 max-w-2xl">
+          <h3 className="mb-4 text-center text-sm font-semibold uppercase tracking-wider text-text-dim">
+            3. Set up and ask your first question
+          </h3>
+          <div className="rounded-xl border border-border bg-surface-alt p-6">
+            <p className="mb-3 text-sm text-text-secondary">
+              <InlineCode>spotifai install</InlineCode> creates the
+              permission files in your home directory.{" "}
+              <InlineCode>spotifai auth</InlineCode> opens a browser tab so
+              you can sign in. After that, you can talk to your library.
+            </p>
+            <pre className="overflow-x-auto rounded-lg bg-surface p-4 text-sm leading-relaxed text-text-secondary">
+              <code>
+                <span className="text-accent">$</span> spotifai install{"\n"}
+                <span className="text-accent">$</span> spotifai auth{"\n"}
+                <span className="text-accent">$</span> spotifai ask "What are my most-played albums?"
+              </code>
+            </pre>
+          </div>
         </div>
 
         <p className="mt-10 text-center text-xs text-text-dim">
-          Powered by zag {sourceData.zagVersion} (LLM agent runtime) and zad {sourceData.zadVersion} (music-service client).
+          Powered by <UpstreamLink name="zag">zag {sourceData.zagVersion}</UpstreamLink> (the AI runtime) and{" "}
+          <UpstreamLink name="zad">zad {sourceData.zadVersion}</UpstreamLink> (the music-service client).
           Released under the {sourceData.license} license.
         </p>
       </div>

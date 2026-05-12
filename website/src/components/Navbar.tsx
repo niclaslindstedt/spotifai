@@ -22,7 +22,6 @@ export default function Navbar() {
       <a href={sectionHref("#features")} className="text-sm text-text-secondary hover:text-text-primary transition-colors">Features</a>
       <a href={sectionHref("#providers")} className="text-sm text-text-secondary hover:text-text-primary transition-colors">Providers</a>
       <a href={sectionHref("#permissions")} className="text-sm text-text-secondary hover:text-text-primary transition-colors">Permissions</a>
-      <a href={sectionHref("#examples")} className="text-sm text-text-secondary hover:text-text-primary transition-colors">Examples</a>
       <a href={sectionHref("#install")} className="text-sm text-text-secondary hover:text-text-primary transition-colors">Install</a>
       <Link
         to="/docs/getting-started"

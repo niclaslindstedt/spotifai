@@ -75,7 +75,7 @@ spotifai playlist "a 30-minute focus playlist with no vocals"
 #> Created `Focus · 30min` with 12 tracks (29:48).
 
 # Migrate your Spotify library to YouTube Music
-spotifai export | spotifai import --provider ymusic
+spotifai export --provider spotify | spotifai import --provider ymusic
 #> == spotifai export (Spotify) ==
 #> fetching liked tracks…
 #>   247 liked tracks

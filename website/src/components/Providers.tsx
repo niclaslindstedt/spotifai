@@ -1,24 +1,28 @@
+import InlineCode from "./InlineCode";
 import { sourceData } from "../generated/sourceData";
 
-// Each provider gets its own brand color and a short blurb. The
-// blurbs are editorial — they explain the OAuth flow shape and the
-// verb-surface differences that aren't obvious from the allowlists
-// alone.
-const providerBlurbs: Record<string, { tagline: string; oauth: string; verbShape: string; accent: string }> = {
+// Each provider gets its own brand color and a short, user-facing
+// blurb. Blurbs focus on what the user has to do to connect each
+// service and what their library looks like once connected — not on
+// the internal HTTP/OAuth mechanics.
+const providerBlurbs: Record<
+  string,
+  { tagline: string; setup: string; library: string; accent: string }
+> = {
   spotify: {
-    tagline: "OAuth 2.0 PKCE — public client, no client secret.",
-    oauth:
-      "spotifai auth opens a per-session self-signed HTTPS loopback listener and runs the PKCE flow against the Spotify Web API. Pin http://127.0.0.1 as a redirect host in the developer dashboard once.",
-    verbShape:
-      "Library splits into library tracks ... and library albums ...; saved albums get their own surface. Search defaults to track + album + artist + playlist.",
+    tagline: "Sign in once with your Spotify account — no password ever leaves your machine.",
+    setup:
+      "Create a free Spotify developer app (a one-time, two-minute click-through), paste its ID into spotifai once, and you're done. After that, signing in just opens a browser tab on your own machine.",
+    library:
+      "Liked songs, saved albums and playlists all show up the way you'd expect them to in the Spotify app. Search covers tracks, albums, artists and playlists.",
     accent: "text-spotify border-spotify/30",
   },
   ymusic: {
-    tagline: "Google OAuth 2.0 Desktop client — needs a client_secret.",
-    oauth:
-      "spotifai auth --provider ymusic uses Google's Desktop-app HTTP loopback flow (zad >= 0.6.0). Enable the YouTube Data API v3 in your Cloud project and add your account to the consent-screen test users.",
-    verbShape:
-      "Library is a single library list over rated videos (no saved-albums concept). Library writes are library like / library unlike. Playlists support a --title flag instead of --name.",
+    tagline: "Sign in with the same Google account you use for YouTube Music.",
+    setup:
+      "Create a free Google Cloud OAuth client (the same kind of setup as for any third-party YouTube app), turn on the YouTube Data API, and add yourself as a test user. After that, signing in just opens a browser tab on your own machine.",
+    library:
+      "Your library is the videos and songs you have liked on YouTube Music. Playlists work the same way as on Spotify; YouTube Music does not have a separate “saved albums” surface.",
     accent: "text-ymusic border-ymusic/30",
   },
 };
@@ -31,13 +35,12 @@ export default function Providers() {
     >
       <div className="mx-auto max-w-6xl px-6">
         <h2 className="text-center text-3xl font-bold text-text-primary md:text-4xl">
-          {sourceData.providers.length} providers, one CLI surface
+          {sourceData.providers.length} services, one tool
         </h2>
         <p className="mx-auto mt-4 max-w-2xl text-center text-text-secondary">
-          Pick a backend with{" "}
-          <code className="rounded bg-surface px-1.5 py-0.5 text-xs text-accent">--provider</code>
-          {" "}— every command respects the flag. Adding a third provider is a single new variant in
-          {" "}<code className="rounded bg-surface px-1.5 py-0.5 text-xs text-accent">src/providers.rs</code>.
+          Pick which service you want to talk to with{" "}
+          <InlineCode>--provider</InlineCode> &mdash; every command takes the
+          same flag, and works the same way regardless of which one you choose.
         </p>
 
         <div className="mt-14 grid gap-6 md:grid-cols-2">
@@ -49,31 +52,26 @@ export default function Providers() {
                 key={p.slug}
                 className={`rounded-xl border ${accent} bg-surface p-6`}
               >
-                <div className="mb-1 text-xs font-medium uppercase tracking-wider text-text-dim">
-                  {p.zadSubcommand} subcommand
-                </div>
                 <h3 className={`mb-1 text-2xl font-bold ${accent.split(" ")[0]}`}>
                   {p.displayName}
                 </h3>
                 <p className="mb-4 text-sm text-text-secondary">
-                  {blurb?.tagline ?? `Backed by zad ${p.zadSubcommand}.`}
+                  {blurb?.tagline ?? `Use --provider ${p.slug} to talk to ${p.displayName}.`}
                 </p>
 
                 <dl className="space-y-3 text-sm">
                   <div>
-                    <dt className="font-semibold text-text-primary">Authentication</dt>
-                    <dd className="mt-1 text-text-secondary">{blurb?.oauth}</dd>
+                    <dt className="font-semibold text-text-primary">Getting connected</dt>
+                    <dd className="mt-1 text-text-secondary">{blurb?.setup}</dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-text-primary">Verb surface</dt>
-                    <dd className="mt-1 text-text-secondary">{blurb?.verbShape}</dd>
+                    <dt className="font-semibold text-text-primary">What spotifai sees</dt>
+                    <dd className="mt-1 text-text-secondary">{blurb?.library}</dd>
                   </div>
                   <div>
-                    <dt className="font-semibold text-text-primary">CLI flag</dt>
+                    <dt className="font-semibold text-text-primary">Pick this service with</dt>
                     <dd className="mt-1">
-                      <code className="rounded bg-surface-alt px-1.5 py-0.5 text-xs text-accent">
-                        --provider {p.slug}
-                      </code>
+                      <InlineCode>--provider {p.slug}</InlineCode>
                     </dd>
                   </div>
                 </dl>
@@ -81,11 +79,6 @@ export default function Providers() {
             );
           })}
         </div>
-
-        <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-text-dim">
-          Tidal, Apple Music, anything else zad ships a service for: one new variant + one match arm
-          per provider method. The CLI surface picks it up automatically through clap's value-enum derive.
-        </p>
       </div>
     </section>
   );
