@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 
 const REPOS: Record<string, string> = {
-  zag: "https://github.com/niclaslindstedt/zag",
-  zad: "https://github.com/niclaslindstedt/zad",
+  zag: "https://zag.niclaslindstedt.se/",
+  zad: "https://zad.niclaslindstedt.se/",
 };
 
 /**
  * External link to one of the upstream crates (zag or zad). Used so
  * every mention of those names across the site is consistently a
- * clickable reference to the upstream repository.
+ * clickable reference to the upstream project site.
  */
 export default function UpstreamLink({
   name,
