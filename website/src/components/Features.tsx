@@ -28,26 +28,6 @@ const features = [
     description: `spotifai export | spotifai import is the canonical migration form: dump your Spotify library, recreate the playlists on YouTube Music. Tracks resolve via ISRC, then title + primary artist. Same-name playlists are skipped, so re-runs are idempotent.`,
     icon: "\u{1F501}",
   },
-  {
-    title: "Thin shell, zero duplication",
-    description: `spotifai delegates everything to zag (LLM agent runtime) and zad (music-service client). No agent loop, no Spotify HTTP code, no rate-limiter — those live upstream. The CLI is just argument parsing, permission scaffolding, and output formatting.`,
-    icon: "\u{1F9F1}",
-  },
-  {
-    title: "OAuth in your shell",
-    description: `spotifai auth runs an in-process OAuth loopback flow per provider — Spotify uses PKCE with a per-session self-signed HTTPS cert, YouTube Music uses Google's Desktop OAuth flow. Tokens land in the OS keychain. No long-lived cloud secrets.`,
-    icon: "\u{1F511}",
-  },
-  {
-    title: "Composable with the shell",
-    description: `Every command writes structured JSON to stdout and status messages to stderr, so spotifai export | jq, spotifai api search | fzf, and other one-liners just work. Parse the output, pipe it forward, automate everything.`,
-    icon: "\u{1F4DD}",
-  },
-  {
-    title: "Always-on debug log",
-    description: `Every invocation appends to debug.log under your platform's state directory. Failed runs get triaged from the file, no extra flags. The --debug flag echoes the same lines to stderr; SPOTIFAI_LOG tunes the filter.`,
-    icon: "\u{1F4D3}",
-  },
 ];
 
 export default function Features() {

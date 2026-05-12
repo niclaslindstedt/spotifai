@@ -4,18 +4,21 @@ import { sourceData } from "../generated/sourceData";
 
 type ProfileKey = "ask" | "playlist";
 
-const profileMeta: Record<ProfileKey, { title: string; verb: string; tagline: string }> = {
+const profileMeta: Record<
+  ProfileKey,
+  { label: string; command: string; tagline: string }
+> = {
   ask: {
-    title: "ask.toml",
-    verb: "spotifai ask",
+    label: "Reading your library",
+    command: "spotifai ask",
     tagline:
-      "Read-only profile, injected into spotifai ask. Search the catalogue, list playlists, walk the library. No writes, no deletes.",
+      "Used when you ask questions about your music. The agent can search and look around, but it cannot change anything you have saved.",
   },
   playlist: {
-    title: "playlist.toml",
-    verb: "spotifai playlist",
+    label: "Curating one new playlist",
+    command: "spotifai playlist",
     tagline:
-      "Adds three curator verbs to the read-only baseline. The agent can create one new playlist, populate it, and rename it — but never delete or modify your saved library.",
+      "Used when you ask spotifai to build a playlist for you. It can create one new playlist and add tracks to it — but it cannot delete or modify any playlist you already have.",
   },
 };
 
@@ -39,20 +42,19 @@ export default function Permissions() {
     >
       <div className="mx-auto max-w-5xl px-6">
         <h2 className="text-center text-3xl font-bold text-text-primary md:text-4xl">
-          The agent only uses verbs you signed off on
+          An AI that only does what you allow
         </h2>
         <p className="mx-auto mt-4 max-w-3xl text-center text-text-secondary">
-          spotifai ships two profiles per provider under{" "}
-          <code className="rounded bg-surface-alt px-1.5 py-0.5 text-xs text-accent">
-            ~/.spotifai/permissions/&lt;provider&gt;/
-          </code>
-          . They are signed at install time with a per-machine Ed25519 key in the OS keychain;
-          zad fails closed at load time on any unsigned change.
+          A normal Spotify API token — or an MCP server pointed at your account — hands
+          the AI the keys to everything: it can read, edit, and delete anything on your
+          account. spotifai is different. Each command comes with its own short list of
+          actions, and the agent literally cannot do anything outside that list, no matter
+          what you (or it) ask.
         </p>
 
         <div className="mt-12 overflow-hidden rounded-xl border border-border bg-surface-alt shadow-2xl">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-5 py-3">
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {sourceData.providers.map((p) => (
                 <button
                   key={p.slug}
@@ -67,7 +69,7 @@ export default function Permissions() {
                 </button>
               ))}
             </div>
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {(Object.keys(profileMeta) as ProfileKey[]).map((key) => (
                 <button
                   key={key}
@@ -78,7 +80,7 @@ export default function Permissions() {
                       : "text-text-dim hover:text-text-secondary"
                   }`}
                 >
-                  {profileMeta[key].title}
+                  {profileMeta[key].label}
                 </button>
               ))}
             </div>
@@ -86,11 +88,13 @@ export default function Permissions() {
 
           <div className="grid grid-cols-1 gap-6 p-6 md:grid-cols-2">
             <div>
-              <div className="mb-3 flex items-center gap-2 text-sm">
-                <span className="font-semibold text-text-primary">{meta.verb}</span>
-                <span className="text-text-dim">&middot;</span>
-                <span className="text-text-dim">
-                  {activeProvider?.displayName} &middot; {meta.title}
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+                <code className="rounded bg-surface px-2 py-0.5 text-accent">
+                  {meta.command}
+                </code>
+                <span className="text-text-dim">on</span>
+                <span className="font-semibold text-text-primary">
+                  {activeProvider?.displayName}
                 </span>
               </div>
               <p className="text-sm leading-relaxed text-text-secondary">{meta.tagline}</p>
@@ -99,21 +103,16 @@ export default function Permissions() {
                   &ldquo;{activeProfile.description}&rdquo;
                 </p>
               )}
-              {activeProfile?.mode && (
-                <p className="mt-3 text-xs text-text-dim">
-                  mode = <code className="text-accent">{activeProfile.mode.toLowerCase()}</code>
-                </p>
-              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4 text-sm">
               <VerbList
-                heading="allowed"
+                heading="Can do"
                 tone="accent"
                 verbs={activeProfile?.allowed ?? []}
               />
               <VerbList
-                heading="denied"
+                heading="Cannot do"
                 tone="dim"
                 verbs={activeProfile?.denied ?? []}
               />
@@ -125,18 +124,18 @@ export default function Permissions() {
           {[
             {
               num: "1",
-              title: "Mint signing key",
-              body: "spotifai install bootstraps a per-machine Ed25519 keypair in the OS keychain (account zad/signing:v1).",
+              title: "Smaller blast radius than an API key",
+              body: "An API token (or an MCP server using one) lets the AI do anything your account can do. spotifai narrows that to a handful of safe actions per command — there is simply no command that can wipe your library.",
             },
             {
               num: "2",
-              title: "Scaffold profiles",
-              body: "Writes ask.toml + playlist.toml under each provider directory. Existing hand-edits are preserved across re-runs.",
+              title: "Tamper-evident by design",
+              body: "Your permission lists are sealed when you install spotifai. If anything — including the agent itself — tries to silently widen them on disk, the next run refuses to start until you re-approve.",
             },
             {
               num: "3",
-              title: "Sign and trust",
-              body: "Each file is signed and the signature lands in ~/.zad/signing/trusted.toml. zad's load-time check passes; the agent surfaces light up.",
+              title: "Nothing lives in the cloud",
+              body: "Login tokens are stored in your operating system's keychain, the same place your other apps keep passwords. No long-lived secret sits on a server somewhere waiting to leak.",
             },
           ].map((step) => (
             <div
