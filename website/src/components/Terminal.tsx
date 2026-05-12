@@ -6,11 +6,6 @@ interface TerminalProps {
   className?: string;
 }
 
-// Simple non-animated terminal: tab strip across the top, scrollable
-// body underneath. Each tab renders one example group from the
-// extracted README quick-start. Static rendering keeps the bundle
-// small and avoids the layout-jitter issues of typed animations on
-// first paint.
 export default function Terminal({ groups, className = "" }: TerminalProps) {
   const [active, setActive] = useState(0);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -51,29 +46,31 @@ export default function Terminal({ groups, className = "" }: TerminalProps) {
 
       <div
         ref={bodyRef}
-        className="h-[320px] overflow-y-auto p-5 text-left font-mono text-sm leading-relaxed"
+        className="h-[360px] overflow-y-auto p-5 text-left font-mono text-sm leading-relaxed"
       >
-        {current && (
-          <>
-            {current.comment && (
-              <p className="mb-3 text-text-dim italic"># {current.comment}</p>
-            )}
-            {current.commands.map((cmd, i) => (
-              <div key={i} className="flex">
-                <span className="mr-2 select-none text-accent">$</span>
-                <span className="whitespace-pre-wrap text-text-secondary">{cmd}</span>
+        {current?.steps.map((step, i) => (
+          <div key={i} className={i > 0 ? "mt-4" : ""}>
+            <div className="flex">
+              <span className="mr-2 select-none text-accent">$</span>
+              <span className="whitespace-pre-wrap text-text-primary">
+                {step.command}
+              </span>
+            </div>
+            {step.output.map((line, j) => (
+              <div
+                key={j}
+                className="whitespace-pre-wrap pl-4 text-text-dim"
+              >
+                {line || " "}
               </div>
             ))}
-          </>
-        )}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// Pull a short label out of the comment block — the first sentence,
-// truncated. Each README quick-start chunk leads with a comment line
-// that already reads like a tab title.
 function tabLabel(group: ExampleGroup, idx: number): string {
   const raw = group.comment || `Example ${idx + 1}`;
   const trimmed = raw.split(/[—.:]/)[0].trim();

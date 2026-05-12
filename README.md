@@ -48,47 +48,54 @@ make build
 
 ## Quick start
 
+Example output uses `#>` so the block stays valid `sh`; the website
+terminal renders those lines as program output.
+
 ```sh
-# Walk the three-step guided setup: bootstrap the per-machine Ed25519
-# signing key in your OS keychain, scaffold the per-provider permissions
-# files under ~/.spotifai/permissions/<provider>/ (ask.toml is read-only;
-# playlist.toml adds create/add/rename), and sign each one. Re-run
-# after editing any profile file to resign.
-spotifai install
+# Ask your library a question
+spotifai ask "what are my most recently added albums?"
+#> == spotifai ask (Spotify) ==
+#> permissions: ~/.spotifai/permissions/spotify/ask.toml
+#> starting interactive zag session — Ctrl+D to exit
+#>
+#> Your 5 most recently added albums:
+#>   1. Midnights — Taylor Swift             (added 2 days ago)
+#>   2. Igor — Tyler, The Creator            (added 5 days ago)
+#>   3. Currents — Tame Impala               (added 1 week ago)
+#>   4. Blonde — Frank Ocean                 (added 2 weeks ago)
+#>   5. To Pimp a Butterfly — Kendrick Lamar (added 3 weeks ago)
 
-# Authenticate with Spotify (opens browser for an in-process OAuth 2.0
-# PKCE loopback flow). The resulting client_id and refresh token are
-# written to your OS keychain and used by every spotifai surface.
-spotifai auth
-
-# (Optional) Authenticate with YouTube Music. Same flow, against Google
-# (with a client_secret for the Desktop OAuth client).
-spotifai auth --provider ymusic
-
-# Ask a natural-language question about your Spotify library — `ask` is
-# read-only and self-restricts to the verbs in
-# ~/.spotifai/permissions/spotify/ask.toml.
-spotifai ask "What are my most recently added albums?"
-
-# Same question against YouTube Music — uses the ymusic profile and
-# ymusic-shaped verbs (no albums; library list covers rated videos).
-spotifai ask --provider ymusic "What playlists do I have?"
-
-# Build a new Spotify playlist conversationally — `playlist` loads
-# ~/.spotifai/permissions/spotify/playlist.toml so the agent can create
-# one new playlist, add tracks to it, and rename it. Destructive verbs
-# stay denied.
+# Build a focus playlist conversationally
 spotifai playlist "a 30-minute focus playlist with no vocals"
+#> == spotifai playlist (Spotify) ==
+#> permissions: ~/.spotifai/permissions/spotify/playlist.toml
+#> starting interactive zag session — Ctrl+D to exit
+#>
+#> Searching for instrumental tracks around 30 minutes…
+#> Created `Focus · 30min` with 12 tracks (29:48).
 
-# Build a new YouTube Music playlist.
-spotifai playlist --provider ymusic "an upbeat 45-minute commute playlist"
-
-# Migrate your Spotify library to YouTube Music — playlists are recreated
-# on the target, with tracks resolved by ISRC (then title + artist) on the
-# new provider. Existing playlists with the same name are skipped, so re-runs
-# are idempotent.
-spotifai export --provider spotify | spotifai import --provider ymusic
+# Migrate your Spotify library to YouTube Music
+spotifai export | spotifai import --provider ymusic
+#> == spotifai export (Spotify) ==
+#> fetching liked tracks…
+#>   247 liked tracks
+#> fetching saved albums…
+#>   18 saved albums
+#> fetching playlists…
+#>   12 playlists
+#> ✓  exported 247 liked items, 18 albums, 12 playlists (843 playlist tracks)
+#> == spotifai import (YouTube Music) ==
+#> fetching existing playlists on target…
+#> 0 existing playlists on target
+#> ✓  created `Focus · 30min` with 12 videos
+#> ✓  created `Workout` with 41 videos
+#> ✓  imported 12 playlists (843 tracks added, 0 skipped duplicate, 0 failed playlists, 24 unresolved tracks, 0 failed adds)
 ```
+
+First-time setup is a one-off — run `spotifai install` (scaffolds and
+signs the per-provider permissions files in `~/.spotifai/permissions/`)
+and `spotifai auth` (OAuth 2.0 PKCE loopback for Spotify; pass
+`--provider ymusic` for YouTube Music) before the examples above.
 
 ## Usage
 
