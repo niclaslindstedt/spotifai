@@ -141,10 +141,7 @@ async fn collect_ymusic(wait: bool) -> Result<Envelope> {
 
     output::info("fetching liked videos…");
     zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-    let liked_videos = client
-        .liked(LikedRequest::all())
-        .await
-        .map_err(map_zad)?;
+    let liked_videos = client.liked(LikedRequest::all()).await.map_err(map_zad)?;
     output::info(&format!("  {} liked videos", liked_videos.len()));
 
     output::info("fetching playlists…");
