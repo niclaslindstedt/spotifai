@@ -80,6 +80,36 @@ pub struct Source {
     /// `Cargo.toml` version of the spotifai build that produced the
     /// envelope. Useful for diagnostics if the schema ever evolves.
     pub tool_version: String,
+    /// API revision the read was sourced against — verbatim from
+    /// `zad::service::<provider>::*::calibration()` at export time.
+    /// Lets a downstream consumer tell which generation of the
+    /// upstream provider's API the data was pulled through without
+    /// having to crack open the zad source tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_calibration: Option<ApiCalibration>,
+}
+
+/// Serialised form of [`zad::service::ApiCalibration`]. Kept as a
+/// local owned-string copy (rather than re-exporting zad's
+/// `&'static str` flavour) so consumers that don't depend on zad can
+/// still deserialise the envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApiCalibration {
+    pub service: String,
+    pub verified_at: String,
+    pub reference_url: String,
+    pub api_base_version: String,
+}
+
+impl From<zad::service::ApiCalibration> for ApiCalibration {
+    fn from(c: zad::service::ApiCalibration) -> Self {
+        Self {
+            service: c.service.into(),
+            verified_at: c.verified_at.into(),
+            reference_url: c.reference_url.into(),
+            api_base_version: c.api_base_version.into(),
+        }
+    }
 }
 
 /// Authenticated user identity at the source provider.
@@ -242,6 +272,7 @@ pub fn build_envelope_from_spotify(
             user,
             tool: "spotifai".into(),
             tool_version: tool_version.to_string(),
+            api_calibration: Some(zad::service::spotify::Spotify::calibration().into()),
         },
         exported_at,
     );
@@ -279,6 +310,7 @@ pub fn build_envelope_from_ymusic(
             user,
             tool: "spotifai".into(),
             tool_version: tool_version.to_string(),
+            api_calibration: Some(zad::service::ymusic::Ymusic::calibration().into()),
         },
         exported_at,
     );
