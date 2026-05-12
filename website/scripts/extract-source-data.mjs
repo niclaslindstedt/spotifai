@@ -174,6 +174,7 @@ function extractProviders(src) {
 
   const askVerbs = parseProfileVerbs(src, "Ask");
   const playlistVerbs = parseProfileVerbs(src, "Playlist");
+  const cleanVerbs = parseProfileVerbs(src, "Clean");
 
   return variants.map((variant) => {
     const slug = slugMap[variant];
@@ -194,6 +195,7 @@ function extractProviders(src) {
       zadSubcommand,
       ask: askVerbs[slug] ?? null,
       playlist: playlistVerbs[slug] ?? null,
+      clean: cleanVerbs[slug] ?? null,
     };
   });
 }
@@ -403,6 +405,7 @@ export interface ProviderData {
   zadSubcommand: string;
   ask: ProviderProfile | null;
   playlist: ProviderProfile | null;
+  clean: ProviderProfile | null;
 }
 
 export interface CommandData {

@@ -4,6 +4,7 @@ pub mod api;
 pub mod api_fields;
 pub mod ask;
 pub mod auth;
+pub mod clean;
 pub mod cli;
 pub mod commands_index;
 pub mod export;

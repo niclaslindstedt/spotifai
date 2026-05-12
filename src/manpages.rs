@@ -20,6 +20,7 @@ pub static MANPAGES: &[(&str, &str)] = &[
     ("api", include_str!("../man/api.md")),
     ("ask", include_str!("../man/ask.md")),
     ("playlist", include_str!("../man/playlist.md")),
+    ("clean", include_str!("../man/clean.md")),
     ("export", include_str!("../man/export.md")),
     ("import", include_str!("../man/import.md")),
 ];

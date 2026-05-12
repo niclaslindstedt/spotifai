@@ -3,7 +3,7 @@ import InlineCode from "./InlineCode";
 import type { ProviderData, ProviderProfile } from "../generated/sourceData";
 import { sourceData } from "../generated/sourceData";
 
-type ProfileKey = "ask" | "playlist";
+type ProfileKey = "ask" | "playlist" | "clean";
 
 const profileMeta: Record<
   ProfileKey,
@@ -21,10 +21,18 @@ const profileMeta: Record<
     tagline:
       "Used when you ask spotifai to build a playlist for you. It can create one new playlist and add tracks to it — but it cannot delete or modify any playlist you already have.",
   },
+  clean: {
+    label: "Cleaning up your library",
+    command: "spotifai clean",
+    tagline:
+      "Used when you ask spotifai to remove things — delete a playlist, drop tracks from a playlist, unsave songs or albums. The agent enumerates the candidates first and waits for your explicit yes/no before deleting anything. It cannot create or add, and it cannot search the public catalogue.",
+  },
 };
 
 function profileFor(provider: ProviderData, key: ProfileKey): ProviderProfile | null {
-  return key === "ask" ? provider.ask : provider.playlist;
+  if (key === "ask") return provider.ask;
+  if (key === "playlist") return provider.playlist;
+  return provider.clean;
 }
 
 export default function Permissions() {

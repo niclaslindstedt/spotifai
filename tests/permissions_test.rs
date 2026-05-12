@@ -1,8 +1,8 @@
 //! Pure-function tests for `spotifai::permissions` and `spotifai::providers`.
 
 use spotifai::permissions::{
-    self, MODE_PLAYLIST_CURATOR, MODE_READ_ONLY, Permissions, Profile, ensure_default_at,
-    from_toml_string, path_for, read_or, to_toml_string,
+    self, MODE_LIBRARY_CLEANUP, MODE_PLAYLIST_CURATOR, MODE_READ_ONLY, Permissions, Profile,
+    ensure_default_at, from_toml_string, path_for, read_or, to_toml_string,
 };
 use spotifai::providers::{Provider, spotify_default, ymusic_default};
 use tempfile::tempdir;
@@ -152,6 +152,64 @@ fn ymusic_ask_default_is_read_only_over_ymusic_verbs() {
 }
 
 #[test]
+fn spotify_clean_default_allows_destructive_verbs_and_denies_creators() {
+    let p = spotify_default(Profile::Clean);
+    assert_eq!(p.mode, MODE_LIBRARY_CLEANUP);
+
+    // Reads needed to enumerate what to delete.
+    for verb in [
+        "playlists list",
+        "playlists show",
+        "library tracks list",
+        "library albums list",
+    ] {
+        assert!(
+            p.allowed.iter().any(|a| a == verb),
+            "spotify×clean should allow read verb `{verb}`, got {:?}",
+            p.allowed
+        );
+    }
+
+    // Destructive verbs the user actually came here for.
+    for verb in [
+        "playlists delete",
+        "playlists remove",
+        "library tracks unsave",
+        "library albums unsave",
+    ] {
+        assert!(
+            p.allowed.iter().any(|a| a == verb),
+            "spotify×clean should allow destructive verb `{verb}`, got {:?}",
+            p.allowed
+        );
+    }
+
+    // `search` and every creator verb stay denied. `clean` works on
+    // the user's own library, not the public catalogue.
+    for verb in [
+        "search",
+        "playlists create",
+        "playlists add",
+        "playlists rename",
+        "library tracks save",
+        "library albums save",
+    ] {
+        assert!(
+            p.denied.iter().any(|d| d == verb),
+            "spotify×clean should deny `{verb}`, got {:?}",
+            p.denied
+        );
+    }
+
+    for v in &p.denied {
+        assert!(
+            !p.allowed.contains(v),
+            "verb `{v}` is on both allow and deny lists in spotify×clean"
+        );
+    }
+}
+
+#[test]
 fn ymusic_playlist_default_allows_create_add_rename_only() {
     let p = ymusic_default(Profile::Playlist);
     assert_eq!(p.mode, MODE_PLAYLIST_CURATOR);
@@ -182,6 +240,69 @@ fn ymusic_playlist_default_allows_create_add_rename_only() {
             p.denied.iter().any(|d| d == verb),
             "ymusic×playlist should deny `{verb}`, got {:?}",
             p.denied
+        );
+    }
+}
+
+#[test]
+fn ymusic_clean_default_allows_destructive_verbs_and_denies_creators() {
+    let p = ymusic_default(Profile::Clean);
+    assert_eq!(p.mode, MODE_LIBRARY_CLEANUP);
+
+    // Reads needed to enumerate what to delete.
+    for verb in ["playlists list", "playlists show", "library list"] {
+        assert!(
+            p.allowed.iter().any(|a| a == verb),
+            "ymusic×clean should allow read verb `{verb}`, got {:?}",
+            p.allowed
+        );
+    }
+
+    // Destructive verbs the user actually came here for. YouTube
+    // Music has a flat `library list` / `library unlike` surface — no
+    // album split.
+    for verb in ["playlists delete", "playlists remove", "library unlike"] {
+        assert!(
+            p.allowed.iter().any(|a| a == verb),
+            "ymusic×clean should allow destructive verb `{verb}`, got {:?}",
+            p.allowed
+        );
+    }
+
+    for verb in [
+        "search",
+        "playlists create",
+        "playlists add",
+        "playlists rename",
+        "library like",
+    ] {
+        assert!(
+            p.denied.iter().any(|d| d == verb),
+            "ymusic×clean should deny `{verb}`, got {:?}",
+            p.denied
+        );
+    }
+
+    // YouTube Music has no `library albums` concept, so make sure we
+    // do not accidentally surface a Spotify-shaped verb on the ymusic
+    // policy.
+    for verb in [
+        "library tracks list",
+        "library albums list",
+        "library tracks unsave",
+        "library albums unsave",
+    ] {
+        assert!(
+            !p.allowed.iter().any(|a| a == verb),
+            "ymusic×clean policy must not list Spotify-shaped verb `{verb}`: {:?}",
+            p.allowed
+        );
+    }
+
+    for v in &p.denied {
+        assert!(
+            !p.allowed.contains(v),
+            "verb `{v}` is on both allow and deny lists in ymusic×clean"
         );
     }
 }
@@ -236,12 +357,20 @@ fn profile_default_policy_dispatches_per_provider() {
         spotify_default(Profile::Playlist)
     );
     assert_eq!(
+        Profile::Clean.default_policy(Provider::Spotify),
+        spotify_default(Profile::Clean)
+    );
+    assert_eq!(
         Profile::Ask.default_policy(Provider::YouTubeMusic),
         ymusic_default(Profile::Ask)
     );
     assert_eq!(
         Profile::Playlist.default_policy(Provider::YouTubeMusic),
         ymusic_default(Profile::Playlist)
+    );
+    assert_eq!(
+        Profile::Clean.default_policy(Provider::YouTubeMusic),
+        ymusic_default(Profile::Clean)
     );
 }
 
@@ -290,8 +419,10 @@ fn toml_roundtrips_through_to_and_from_string() {
     for original in [
         spotify_default(Profile::Ask),
         spotify_default(Profile::Playlist),
+        spotify_default(Profile::Clean),
         ymusic_default(Profile::Ask),
         ymusic_default(Profile::Playlist),
+        ymusic_default(Profile::Clean),
     ] {
         let serialized = to_toml_string(&original).unwrap();
         assert!(

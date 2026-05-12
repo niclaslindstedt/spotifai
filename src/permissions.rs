@@ -4,15 +4,17 @@
 //! Each agent surface has its own TOML policy file, scoped per
 //! backing music provider. `spotifai ask` injects the `ask` profile
 //! into its system prompt; `spotifai playlist` injects the `playlist`
-//! profile. The same files are pointed at by `ZAD_PERMISSIONS_PATH`
-//! when the agent shells out through `spotifai api`, so zad's
-//! load-time verification gate sees the profile that matches the
-//! active surface.
+//! profile; `spotifai clean` injects the `clean` profile. The same
+//! files are pointed at by `ZAD_PERMISSIONS_PATH` when the agent
+//! shells out through `spotifai api`, so zad's load-time verification
+//! gate sees the profile that matches the active surface.
 //!
-//! Both files ship with safe defaults — `ask` is read-only,
+//! All three files ship with safe defaults — `ask` is read-only,
 //! `playlist` adds the verbs needed to build a new playlist
-//! end-to-end. Users can hand-edit either file, then re-run
-//! `spotifai install` so the signing step picks up the change. The
+//! end-to-end, and `clean` adds the destructive verbs needed to remove
+//! existing playlists and saved items. Users can hand-edit any file,
+//! then re-run `spotifai install` so the signing step picks up the
+//! change. The
 //! two layers (prompt-side verb list and zad's signed runtime gate)
 //! serve different roles: the prompt keeps the agent from proposing
 //! forbidden verbs in the first place; zad's verification fails
@@ -41,21 +43,26 @@ pub const MODE_READ_ONLY: &str = "read_only";
 /// Mode tag stored in a playlist-curator profile.
 pub const MODE_PLAYLIST_CURATOR: &str = "playlist_curator";
 
+/// Mode tag stored in a library-cleanup profile.
+pub const MODE_LIBRARY_CLEANUP: &str = "library_cleanup";
+
 /// Identifier for one of spotifai's per-command permission profiles.
 ///
 /// Each variant maps 1:1 to a TOML file under
 /// `~/.spotifai/permissions/<provider>/` and to the command that
-/// loads it (`ask` → `Profile::Ask`, `playlist` → `Profile::Playlist`).
+/// loads it (`ask` → `Profile::Ask`, `playlist` → `Profile::Playlist`,
+/// `clean` → `Profile::Clean`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
     Ask,
     Playlist,
+    Clean,
 }
 
 impl Profile {
     /// Every profile spotifai knows about. The install flow iterates
     /// this (per provider) to scaffold and sign one file per entry.
-    pub const ALL: &'static [Profile] = &[Profile::Ask, Profile::Playlist];
+    pub const ALL: &'static [Profile] = &[Profile::Ask, Profile::Playlist, Profile::Clean];
 
     /// Stable string used as both the file stem and the value of the
     /// `SPOTIFAI_PROFILE` env var.
@@ -63,6 +70,7 @@ impl Profile {
         match self {
             Profile::Ask => "ask",
             Profile::Playlist => "playlist",
+            Profile::Clean => "clean",
         }
     }
 
@@ -76,6 +84,7 @@ impl Profile {
         match s {
             "ask" => Some(Profile::Ask),
             "playlist" => Some(Profile::Playlist),
+            "clean" => Some(Profile::Clean),
             _ => None,
         }
     }

@@ -30,6 +30,19 @@ const features = [
     icon: "\u{1F3B7}",
   },
   {
+    title: "Polite library cleanup",
+    description: (
+      <>
+        <InlineCode>spotifai clean</InlineCode> is the destructive surface
+        &mdash; delete a playlist, drop songs from a playlist, unsave old
+        albums. It always enumerates the candidates first and asks for an
+        explicit yes/no before deleting anything; it cannot add, create or
+        search the public catalogue.
+      </>
+    ),
+    icon: "\u{1F9F9}",
+  },
+  {
     title: "Locked down by default",
     description: (
       <>

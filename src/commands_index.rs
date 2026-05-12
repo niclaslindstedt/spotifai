@@ -154,6 +154,31 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
         ],
     },
     CommandSpec {
+        name: "clean",
+        usage: "spotifai clean [--provider <slug>] [query...]",
+        summary: "Open a zag session with the clean profile injected so the agent can delete playlists, remove tracks from playlists, and unsave items from the user's library on the active provider.",
+        flags: &[
+            FlagSpec {
+                name: "--provider <slug>",
+                ty: "enum",
+                default: "spotify",
+                description: "Backing provider whose library to clean up (spotify, ymusic).",
+            },
+            FlagSpec {
+                name: "[query...]",
+                ty: "string",
+                default: "—",
+                description: "Optional cleanup brief. Joined with spaces and used as the agent's first turn.",
+            },
+        ],
+        exit_codes: COMMON_EXIT_CODES,
+        examples: &[
+            "spotifai clean \"remove all baby songs — my child is 15 now\"",
+            "spotifai clean --provider ymusic \"delete my 'old phone' playlist\"",
+            "spotifai clean \"unsave every saved album from before 2010\"",
+        ],
+    },
+    CommandSpec {
         name: "export",
         usage: "spotifai export [--provider <slug>] [--output <path>] [--pretty]",
         summary: "Dump the user's library on the active provider into one structured JSON document on stdout.",
