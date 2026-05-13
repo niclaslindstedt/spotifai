@@ -263,10 +263,27 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
         timeout: Duration::from_secs(120),
         redirect_scheme: RedirectScheme::Http,
     };
+    output::status(&format!(
+        "requested YouTube Music scopes: {}",
+        cfg.scopes.join(" ")
+    ));
     let tokens = run_loopback_flow(&cfg, opts.open_browser)
         .await
         .map_err(|e| anyhow!("YouTube Music OAuth failed: {e}"))?;
     let refresh = require_refresh(&tokens, "YouTube Music")?;
+    if let Some(scope) = tokens.scope.as_deref() {
+        output::status(&format!("granted YouTube Music scopes: {scope}"));
+        warn_if_youtube_scope_missing(scope);
+    } else {
+        output::warn(
+            "Google did not return the `scope` field in the token response. \
+             If `spotifai import` or `playlist` later report \
+             ACCESS_TOKEN_SCOPE_INSUFFICIENT, re-run `spotifai auth --provider ymusic` \
+             and tick *all* checkboxes on Google's consent screen — under \
+             \"granular permissions\" the YouTube box is separate from the \
+             basic-profile box.",
+        );
+    }
 
     secrets::store(
         &secrets::account("ymusic", "client-id", Scope::Global),
@@ -346,6 +363,44 @@ fn full_zad_scopes() -> Vec<String> {
     out.sort();
     out.dedup();
     out
+}
+
+/// Inspect the space-separated `scope` claim Google returned and
+/// surface a clear warning when neither the read+write nor the
+/// read-only YouTube scope is present. Without one of these the
+/// `/playlists?mine=true` calls used by `export` and `import` will
+/// fail with `ACCESS_TOKEN_SCOPE_INSUFFICIENT` later.
+///
+/// Google rolled out granular permissions in 2024: even when spotifai
+/// requests `https://www.googleapis.com/auth/youtube`, the user can
+/// uncheck the "YouTube" box on the consent screen while leaving the
+/// basic-profile box ticked. The OAuth flow then succeeds (Google
+/// happily issues a token with `openid email` only) but every
+/// subsequent YouTube API call fails. Catching this at auth time
+/// keeps the diagnosis attached to the user action that caused it.
+fn warn_if_youtube_scope_missing(scope: &str) {
+    const WRITE: &str = "https://www.googleapis.com/auth/youtube";
+    const READ: &str = "https://www.googleapis.com/auth/youtube.readonly";
+    let granted: Vec<&str> = scope.split_ascii_whitespace().collect();
+    let has_write = granted.contains(&WRITE);
+    let has_read = granted.contains(&READ);
+    if !has_write && !has_read {
+        output::warn(
+            "Google's consent screen did not grant any YouTube scope. \
+             `spotifai export` / `import` / `playlist` will fail with \
+             ACCESS_TOKEN_SCOPE_INSUFFICIENT until you re-run \
+             `spotifai auth --provider ymusic` and tick the \"YouTube\" \
+             checkbox on Google's consent screen (it's separate from the \
+             basic-profile checkbox under granular permissions).",
+        );
+    } else if !has_write {
+        output::warn(
+            "Google's consent screen granted only `youtube.readonly`; \
+             write surfaces (`spotifai import`, `playlist create/add`) \
+             will fail until you re-run `spotifai auth --provider ymusic` \
+             and grant the full \"Manage your YouTube account\" permission.",
+        );
+    }
 }
 
 fn require_refresh(tokens: &TokenSet, label: &str) -> Result<String> {

@@ -246,6 +246,35 @@ fn all_scopes() -> BTreeSet<String> {
     out
 }
 
+/// Convert a [`zad::ZadError`] into an [`anyhow::Error`], rewriting
+/// well-known failure modes with a concrete remediation. Today this
+/// only catches Google's `ACCESS_TOKEN_SCOPE_INSUFFICIENT` — the error
+/// the YouTube Data API returns when the access token's granted scopes
+/// don't include `youtube` or `youtube.readonly`. The raw zad message
+/// is preserved as the underlying cause so debug builds keep the full
+/// JSON body; the user-facing surface gets a short, actionable line.
+pub fn map_zad(e: zad::ZadError) -> anyhow::Error {
+    let raw = format!("{e}");
+    if is_youtube_scope_insufficient(&raw) {
+        return anyhow!(
+            "YouTube rejected the call with `ACCESS_TOKEN_SCOPE_INSUFFICIENT`. \
+             Re-run `spotifai auth --provider ymusic` and on Google's consent \
+             screen tick *all* checkboxes — under \"granular permissions\" the \
+             YouTube box is separate from the basic-profile box, and only \
+             ticking the latter produces a refresh token that cannot call the \
+             YouTube Data API. Underlying error: {raw}"
+        );
+    }
+    anyhow!("{raw}")
+}
+
+fn is_youtube_scope_insufficient(msg: &str) -> bool {
+    msg.contains("ACCESS_TOKEN_SCOPE_INSUFFICIENT")
+        || (msg.contains("403")
+            && msg.contains("insufficientPermissions")
+            && msg.contains("youtube"))
+}
+
 fn load_spotify_credentials() -> Result<SpotifyCredentials> {
     let client_id =
         load_keychain_or_hint("spotify", "client-id", "spotifai auth --provider spotify")?;

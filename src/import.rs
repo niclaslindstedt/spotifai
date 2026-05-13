@@ -34,7 +34,7 @@ use crate::export_schema::{Envelope, Playlist, SCHEMA_VERSION, Track};
 use crate::output;
 use crate::permissions::{self, Profile};
 use crate::providers::Provider;
-use crate::zad_client;
+use crate::zad_client::{self, map_zad};
 
 /// Run the import.
 pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool, wait: bool) -> Result<()> {
@@ -454,10 +454,6 @@ pub fn track_label(track: &Track) -> String {
         Some(a) => format!("{title} — {a}"),
         None => title.to_string(),
     }
-}
-
-fn map_zad(e: zad::ZadError) -> anyhow::Error {
-    anyhow::anyhow!("{e}")
 }
 
 /// Walk a [`Playlist`] and return tracks that have at least one
