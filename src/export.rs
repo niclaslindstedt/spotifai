@@ -30,7 +30,7 @@ use crate::export_schema::{
 use crate::output;
 use crate::permissions::{self, Profile};
 use crate::providers::Provider;
-use crate::zad_client;
+use crate::zad_client::{self, map_zad};
 
 /// Which buckets the export should fetch. `--likes`, `--albums`,
 /// and `--playlists` map onto the three flags below; if none are
@@ -283,10 +283,6 @@ fn ymusic_export_scopes() -> std::collections::BTreeSet<String> {
     s.insert("library.read".into());
     s.insert("playlists.read".into());
     s
-}
-
-fn map_zad(e: zad::ZadError) -> anyhow::Error {
-    anyhow::anyhow!("{e}")
 }
 
 fn write_output(path: Option<&Path>, body: &str) -> Result<()> {
