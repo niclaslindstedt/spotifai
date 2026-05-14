@@ -4,9 +4,7 @@
 //! what we lock down here is the user-args parser that drives it.
 
 use serde_json::json;
-use spotifai::api::{
-    DEFAULT_LIMIT, SEARCH_LIMIT, SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, Verb, parse_verb,
-};
+use spotifai::api::{SEARCH_LIMIT, SPOTIFAI_PROFILE_ENV, SPOTIFAI_PROVIDER_ENV, Verb, parse_verb};
 use spotifai::api_fields::{self, OutputFormat};
 use spotifai::providers::Provider;
 
@@ -186,7 +184,16 @@ fn playlists_list_takes_limit() {
         &args(&["playlists", "list", "--limit", "20"]),
     )
     .unwrap();
-    assert_eq!(v, Verb::PlaylistsList { limit: 20 });
+    assert_eq!(v, Verb::PlaylistsList { limit: Some(20) });
+}
+
+#[test]
+fn playlists_list_omitting_limit_means_fetch_all() {
+    // The whole point of dropping the artificial 50-cap: when the
+    // agent omits `--limit`, zad pages internally until the playlist
+    // list runs out. This locks that contract in.
+    let v = parse_verb(Provider::Spotify, &args(&["playlists", "list"])).unwrap();
+    assert_eq!(v, Verb::PlaylistsList { limit: None });
 }
 
 #[test]
@@ -200,7 +207,7 @@ fn playlists_show_takes_id() {
             format,
         } => {
             assert_eq!(id, "abc123");
-            assert_eq!(limit, DEFAULT_LIMIT);
+            assert_eq!(limit, None);
             assert!(fields.is_empty());
             assert_eq!(format, OutputFormat::Json);
         }
@@ -233,7 +240,7 @@ fn playlists_show_parses_fields_and_format() {
             format,
         } => {
             assert_eq!(id, "PLST");
-            assert_eq!(limit, 20);
+            assert_eq!(limit, Some(20));
             assert_eq!(fields, vec!["title", "artist", "id"]);
             assert_eq!(format, OutputFormat::Text);
         }
@@ -258,6 +265,39 @@ fn playlists_show_rejects_unknown_format() {
         parse_verb(
             Provider::Spotify,
             &args(&["playlists", "show", "PLST", "--format", "yaml"]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn playlists_show_limit_accepts_values_above_default_cap() {
+    // zad paginates internally, so spotifai should not artificially
+    // cap `--limit` at 50 the way the per-page list verbs do.
+    let v = parse_verb(
+        Provider::Spotify,
+        &args(&["playlists", "show", "PLST", "--limit", "500"]),
+    )
+    .unwrap();
+    match v {
+        Verb::PlaylistsShow { limit, .. } => assert_eq!(limit, Some(500)),
+        other => panic!("expected PlaylistsShow, got {other:?}"),
+    }
+}
+
+#[test]
+fn playlists_show_rejects_zero_and_garbage_limits() {
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "show", "PLST", "--limit", "0"]),
+        )
+        .is_err()
+    );
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "show", "PLST", "--limit", "abc"]),
         )
         .is_err()
     );
@@ -391,22 +431,19 @@ fn library_routes_per_provider() {
         &args(&["library", "tracks", "list", "--limit", "10"]),
     )
     .unwrap();
-    assert_eq!(s, Verb::SpotifyLibraryTracksList { limit: 10 });
+    assert_eq!(s, Verb::SpotifyLibraryTracksList { limit: Some(10) });
 
+    // Omitting `--limit` on a list verb means "fetch every item" —
+    // zad walks the cursor under the hood.
     let s2 = parse_verb(Provider::Spotify, &args(&["library", "albums", "list"])).unwrap();
-    assert_eq!(
-        s2,
-        Verb::SpotifyLibraryAlbumsList {
-            limit: DEFAULT_LIMIT
-        }
-    );
+    assert_eq!(s2, Verb::SpotifyLibraryAlbumsList { limit: None });
 
     let y = parse_verb(
         Provider::YouTubeMusic,
         &args(&["library", "list", "--limit", "5"]),
     )
     .unwrap();
-    assert_eq!(y, Verb::YmusicLibraryList { limit: 5 });
+    assert_eq!(y, Verb::YmusicLibraryList { limit: Some(5) });
 }
 
 #[test]
@@ -424,7 +461,8 @@ fn library_rejects_wrong_shape_for_provider() {
 }
 
 #[test]
-fn limit_is_validated_and_capped() {
+fn limit_is_validated() {
+    // `0` is rejected; the user is told to omit `--limit` for "all".
     assert!(
         parse_verb(
             Provider::Spotify,
@@ -432,13 +470,7 @@ fn limit_is_validated_and_capped() {
         )
         .is_err()
     );
-    assert!(
-        parse_verb(
-            Provider::Spotify,
-            &args(&["playlists", "list", "--limit", "51"])
-        )
-        .is_err()
-    );
+    // Non-numeric values are rejected.
     assert!(
         parse_verb(
             Provider::Spotify,
@@ -446,17 +478,21 @@ fn limit_is_validated_and_capped() {
         )
         .is_err()
     );
+    // Values above the historical 50-cap are now accepted —
+    // zad pages internally past Spotify's per-page maximum.
+    assert!(
+        parse_verb(
+            Provider::Spotify,
+            &args(&["playlists", "list", "--limit", "500"])
+        )
+        .is_ok()
+    );
 }
 
 #[test]
 fn json_and_pretty_flags_are_accepted_as_no_ops() {
     let v = parse_verb(Provider::Spotify, &args(&["playlists", "list", "--json"])).unwrap();
-    assert_eq!(
-        v,
-        Verb::PlaylistsList {
-            limit: DEFAULT_LIMIT
-        }
-    );
+    assert_eq!(v, Verb::PlaylistsList { limit: None });
 }
 
 #[test]

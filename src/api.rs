@@ -114,11 +114,19 @@ pub enum Verb {
         format: OutputFormat,
     },
     /// `playlists list [--limit N]`
-    PlaylistsList { limit: u32 },
+    ///
+    /// `limit == None` (the default when `--limit` is omitted) means
+    /// "fetch every playlist". Pass `--limit N` to cap.
+    PlaylistsList { limit: Option<u32> },
     /// `playlists show <id> [--limit N] [--fields a,b,c] [--format json|text]`
+    ///
+    /// `limit == None` (the default when `--limit` is omitted) means
+    /// "fetch every track in the playlist" — zad's
+    /// `get_playlist_tracks` / `get_playlist_items` walk the upstream
+    /// cursor under the hood. Pass `--limit N` to cap.
     PlaylistsShow {
         id: String,
-        limit: u32,
+        limit: Option<u32>,
         fields: Vec<String>,
         format: OutputFormat,
     },
@@ -133,17 +141,13 @@ pub enum Verb {
         playlist_id: String,
         ids: Vec<String>,
     },
-    /// Spotify: `library tracks list [--limit N]`
-    SpotifyLibraryTracksList { limit: u32 },
-    /// Spotify: `library albums list [--limit N]`
-    SpotifyLibraryAlbumsList { limit: u32 },
-    /// YouTube Music: `library list [--limit N]` (rated videos).
-    YmusicLibraryList { limit: u32 },
+    /// Spotify: `library tracks list [--limit N]`. `None` = fetch all.
+    SpotifyLibraryTracksList { limit: Option<u32> },
+    /// Spotify: `library albums list [--limit N]`. `None` = fetch all.
+    SpotifyLibraryAlbumsList { limit: Option<u32> },
+    /// YouTube Music: `library list [--limit N]` (rated videos). `None` = fetch all.
+    YmusicLibraryList { limit: Option<u32> },
 }
-
-/// Default page size when `--limit` is omitted. Spotify and YouTube
-/// Music both cap most list endpoints at 50.
-pub const DEFAULT_LIMIT: u32 = 50;
 
 /// Spotify's `/search` endpoint caps `limit` at 10 (tightened from
 /// the historically-documented 50; values above 10 now return
@@ -383,36 +387,27 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ListOpts {
-    limit: u32,
-}
-
-impl Default for ListOpts {
-    fn default() -> Self {
-        Self {
-            limit: DEFAULT_LIMIT,
-        }
-    }
+    /// `None` means "no `--limit` was given" → fetch everything.
+    limit: Option<u32>,
 }
 
 fn parse_list_opts<'a, I>(iter: &mut std::iter::Peekable<I>) -> Result<ListOpts>
 where
     I: Iterator<Item = &'a String>,
 {
-    let mut opts = ListOpts {
-        limit: DEFAULT_LIMIT,
-    };
+    let mut opts = ListOpts::default();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--limit" | "-l" => {
                 let v = iter
                     .next()
                     .ok_or_else(|| anyhow!("--limit needs a value"))?;
-                opts.limit = parse_limit(v)?;
+                opts.limit = Some(parse_positive_limit(v)?);
             }
             s if s.starts_with("--limit=") => {
-                opts.limit = parse_limit(&s["--limit=".len()..])?;
+                opts.limit = Some(parse_positive_limit(&s["--limit=".len()..])?);
             }
             "--json" | "--pretty" => {}
             other => bail!("unknown arg `{other}`"),
@@ -421,9 +416,10 @@ where
     Ok(opts)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ShowOpts {
-    limit: u32,
+    /// `None` means "no `--limit` was given" → fetch every track.
+    limit: Option<u32>,
     fields: Vec<String>,
     format: OutputFormat,
 }
@@ -432,21 +428,17 @@ fn parse_show_opts<'a, I>(iter: &mut std::iter::Peekable<I>) -> Result<ShowOpts>
 where
     I: Iterator<Item = &'a String>,
 {
-    let mut opts = ShowOpts {
-        limit: DEFAULT_LIMIT,
-        fields: Vec::new(),
-        format: OutputFormat::default(),
-    };
+    let mut opts = ShowOpts::default();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--limit" | "-l" => {
                 let v = iter
                     .next()
                     .ok_or_else(|| anyhow!("--limit needs a value"))?;
-                opts.limit = parse_limit(v)?;
+                opts.limit = Some(parse_positive_limit(v)?);
             }
             s if s.starts_with("--limit=") => {
-                opts.limit = parse_limit(&s["--limit=".len()..])?;
+                opts.limit = Some(parse_positive_limit(&s["--limit=".len()..])?);
             }
             "--fields" | "-f" => {
                 let v = iter
@@ -478,12 +470,16 @@ where
     Ok(opts)
 }
 
-fn parse_limit(s: &str) -> Result<u32> {
+/// Parse a `--limit N` value for the list-style GET verbs. zad
+/// paginates internally, so any positive integer is accepted; the
+/// "fetch everything" case is signaled by *omitting* `--limit`
+/// entirely (handled by the parent parser, not here).
+fn parse_positive_limit(s: &str) -> Result<u32> {
     let n: u32 = s
         .parse()
         .map_err(|_| anyhow!("--limit must be a positive integer; got `{s}`"))?;
-    if !(1..=DEFAULT_LIMIT).contains(&n) {
-        bail!("--limit must be between 1 and {DEFAULT_LIMIT}; got {n}");
+    if n == 0 {
+        bail!("--limit must be at least 1 (omit --limit to fetch all)");
     }
     Ok(n)
 }
@@ -570,7 +566,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
         }
         Verb::PlaylistsList { limit } => {
             let client = zad_client::load_spotify_all()?;
-            let req = PlaylistsRequest::new(Some(limit))
+            let req = PlaylistsRequest::new(limit)
                 .map_err(|e| anyhow!("invalid playlists request: {e}"))?;
             let res = client
                 .playlists(req)
@@ -585,7 +581,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
                 .await
                 .map_err(|e| anyhow!("spotify get_playlist failed: {e}"))?;
             let tracks = http
-                .get_playlist_tracks(&id, Some(limit))
+                .get_playlist_tracks(&id, limit)
                 .await
                 .map_err(|e| anyhow!("spotify get_playlist_tracks failed: {e}"))?;
             let mut summary_value = to_value(&summary)?;
@@ -632,7 +628,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
         }
         Verb::SpotifyLibraryTracksList { limit } => {
             let client = zad_client::load_spotify_all()?;
-            let req = SavedTracksRequest::new(Some(limit))
+            let req = SavedTracksRequest::new(limit)
                 .map_err(|e| anyhow!("invalid saved_tracks request: {e}"))?;
             let res = client
                 .saved_tracks(req)
@@ -643,7 +639,7 @@ async fn dispatch_spotify(verb: Verb) -> Result<Value> {
         Verb::SpotifyLibraryAlbumsList { limit } => {
             let http = zad_client::load_spotify_http(default_spotify_scopes())?;
             let res = http
-                .list_saved_albums(Some(limit))
+                .list_saved_albums(limit)
                 .await
                 .map_err(|e| anyhow!("spotify list_saved_albums failed: {e}"))?;
             Ok(json!({ "items": to_value(&res)? }))
@@ -683,7 +679,7 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
         }
         Verb::PlaylistsList { limit } => {
             let client = zad_client::load_ymusic_all()?;
-            let req = PlaylistsRequest::new(Some(limit))
+            let req = PlaylistsRequest::new(limit)
                 .map_err(|e| anyhow!("invalid playlists request: {e}"))?;
             let res = client
                 .playlists(req)
@@ -698,7 +694,7 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
                 .await
                 .map_err(|e| anyhow!("ymusic get_playlist failed: {e}"))?;
             let items = http
-                .get_playlist_items(&id, Some(limit))
+                .get_playlist_items(&id, limit)
                 .await
                 .map_err(|e| anyhow!("ymusic get_playlist_items failed: {e}"))?;
             let mut summary_value = to_value(&summary)?;
@@ -745,8 +741,8 @@ async fn dispatch_ymusic(verb: Verb) -> Result<Value> {
         }
         Verb::YmusicLibraryList { limit } => {
             let client = zad_client::load_ymusic_all()?;
-            let req = LikedRequest::new(Some(limit))
-                .map_err(|e| anyhow!("invalid liked request: {e}"))?;
+            let req =
+                LikedRequest::new(limit).map_err(|e| anyhow!("invalid liked request: {e}"))?;
             let res = client
                 .liked(req)
                 .await
