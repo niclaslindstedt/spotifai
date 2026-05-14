@@ -360,6 +360,15 @@ pub struct ImportArgs {
     /// realistic.
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Ignore any saved progress under `~/.spotifai/import-state/`
+    /// for this envelope and start the import from scratch. Useful
+    /// when an earlier run left stale state behind (e.g. after
+    /// manually deleting playlists on the target). Without this
+    /// flag, re-running the same `spotifai import` command resumes
+    /// from where the previous run was interrupted.
+    #[arg(long)]
+    pub no_resume: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -482,6 +491,7 @@ pub fn run() -> Result<()> {
             args.input.as_deref(),
             args.dry_run,
             wait_oneshot,
+            args.no_resume,
         ),
         Some(Command::Commands(args)) => commands_index::run(args.name.as_deref(), args.examples),
         Some(Command::Man(args)) => manpages::run(args.command.as_deref()),
