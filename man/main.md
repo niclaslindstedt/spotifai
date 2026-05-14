@@ -163,7 +163,7 @@ Print an embedded conceptual doc (§12.3). The `docs/` directory is compiled int
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `[topic]` | string | — | Topic whose doc to print (`getting-started`, `configuration`, `architecture`, `export-schema`, `troubleshooting`). With no argument, lists every available topic. |
+| `[topic]` | string | — | Topic whose doc to print (`getting-started`, `configuration`, `architecture`, `export-schema`, `troubleshooting`, `logging`). With no argument, lists every available topic. |
 
 ## Log file
 
@@ -193,6 +193,9 @@ verbosity tweaks; the default is `debug`.
 | `SPOTIFAI_PROFILE`  | Read by `spotifai api` to pick the profile file under the active provider's directory (`ask.toml` / `playlist.toml` / `clean.toml`). Required for `api` to run; missing or unknown values exit with a usage error. |
 | `SPOTIFAI_WAIT`     | Read by every `spotifai` invocation to decide whether to sleep through an active rate-limit cooldown — Spotify `HTTP 429` or ymusic `HTTP 429` / Google-quota `HTTP 403` (`1`/`true`/`yes`/`on` → wait; `0`/`false`/`no`/`off` → fail-fast). Set on the user's behalf by `spotifai ask`, `spotifai playlist`, and `spotifai clean` to `1` so child `spotifai api` shells coordinate. The CLI `--wait` / `--no-wait` flags override the env var. |
 | `SPOTIFAI_LOG`      | [`tracing_subscriber::EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/struct.EnvFilter.html) directive controlling the verbosity of the `debug.log` writer. Defaults to `debug`. |
+| `SPOTIFAI_COLOR`    | `auto` (default; ANSI on a stderr TTY), `always` (force on), `never` (force off). `SPOTIFAI_COLOR=always` overrides `NO_COLOR`; `SPOTIFAI_COLOR=never` overrides every other gate. See [`../docs/logging.md`](../docs/logging.md). |
+| `SPOTIFAI_GLYPHS`   | `auto` (unicode unless `LC_ALL=C` / `LANG=C`), `unicode`, `ascii`. Controls the glyph set used by the central output module on stderr. |
+| `NO_COLOR`          | Any non-empty value disables ANSI on stderr (https://no-color.org). Overridden by `SPOTIFAI_COLOR=always`. |
 
 ## Exit codes
 
@@ -224,3 +227,4 @@ spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
 - [`clean.md`](clean.md) — `spotifai clean` reference
 - [`export.md`](export.md) — `spotifai export` reference
 - [`import.md`](import.md) — `spotifai import` reference
+- [`../docs/logging.md`](../docs/logging.md) — logging levels, glyphs, colors, scopes, input helpers

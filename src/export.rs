@@ -86,10 +86,13 @@ pub fn run(
     // so a fresh user gets a sensible default scaffolded.
     let (policy_path, _wrote) = permissions::ensure_default_for(provider, Profile::Ask)?;
 
-    output::header(&format!("spotifai export ({})", provider.display_name()));
-    output::info(&format!("permissions: {}", policy_path.display()));
+    let _scope = output::section(
+        &format!("spotifai export ({})", provider.display_name()),
+        "export",
+    );
+    output::detail(&format!("permissions: {}", policy_path.display()));
     if selection != Selection::ALL {
-        output::info(&format!(
+        output::detail(&format!(
             "selection: likes={} albums={} playlists={}",
             selection.likes, selection.albums, selection.playlists
         ));
@@ -132,39 +135,40 @@ async fn collect_spotify(selection: Selection, wait: bool) -> Result<Envelope> {
     let http = zad_client::load_spotify_http(spotify_export_scopes())?;
 
     let saved_tracks = if selection.likes {
-        output::info("fetching liked tracks…");
+        output::action("fetching liked tracks");
         zad_client::precall_check(Provider::Spotify, wait).await?;
         let tracks = client
             .saved_tracks(SavedTracksRequest::all())
             .await
             .map_err(map_zad)?;
-        output::info(&format!("  {} liked tracks", tracks.len()));
+        output::detail(&format!("{} liked tracks", tracks.len()));
         tracks
     } else {
-        output::info("skipping liked tracks (not selected)");
+        output::detail("skipping liked tracks (not selected)");
         Vec::new()
     };
 
     let saved_albums = if selection.albums {
-        output::info("fetching saved albums…");
+        output::action("fetching saved albums");
         zad_client::precall_check(Provider::Spotify, wait).await?;
         let albums = http.list_saved_albums(None).await.map_err(map_zad)?;
-        output::info(&format!("  {} saved albums", albums.len()));
+        output::detail(&format!("{} saved albums", albums.len()));
         albums
     } else {
-        output::info("skipping saved albums (not selected)");
+        output::detail("skipping saved albums (not selected)");
         Vec::new()
     };
 
     let playlists_with_tracks = if selection.playlists {
-        output::info("fetching playlists…");
+        output::action("fetching playlists");
         zad_client::precall_check(Provider::Spotify, wait).await?;
         let summaries = client
             .playlists(PlaylistsRequest::all())
             .await
             .map_err(map_zad)?;
-        output::info(&format!("  {} playlists", summaries.len()));
+        output::detail(&format!("{} playlists", summaries.len()));
 
+        let _scope = output::scope("playlists");
         let mut acc = Vec::with_capacity(summaries.len());
         for summary in summaries {
             let id = summary.id.clone();
@@ -181,7 +185,7 @@ async fn collect_spotify(selection: Selection, wait: bool) -> Result<Envelope> {
         }
         acc
     } else {
-        output::info("skipping playlists (not selected)");
+        output::detail("skipping playlists (not selected)");
         Vec::new()
     };
 
@@ -207,13 +211,13 @@ async fn collect_ymusic(selection: Selection, wait: bool) -> Result<Envelope> {
     let http = zad_client::load_ymusic_http(ymusic_export_scopes())?;
 
     let liked_videos = if selection.likes {
-        output::info("fetching liked videos…");
+        output::action("fetching liked videos");
         zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
         let videos = client.liked(LikedRequest::all()).await.map_err(map_zad)?;
-        output::info(&format!("  {} liked videos", videos.len()));
+        output::detail(&format!("{} liked videos", videos.len()));
         videos
     } else {
-        output::info("skipping liked videos (not selected)");
+        output::detail("skipping liked videos (not selected)");
         Vec::new()
     };
 
@@ -221,18 +225,19 @@ async fn collect_ymusic(selection: Selection, wait: bool) -> Result<Envelope> {
         // YouTube Music has no saved-albums concept; honor `--albums`
         // by emitting an empty array and a friendly note rather than
         // erroring, so a Spotify-shaped command line stays portable.
-        output::info("saved albums not supported on YouTube Music — emitting []");
+        output::detail("saved albums not supported on YouTube Music — emitting []");
     }
 
     let playlists_with_items = if selection.playlists {
-        output::info("fetching playlists…");
+        output::action("fetching playlists");
         zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
         let summaries = client
             .playlists(PlaylistsRequest::all())
             .await
             .map_err(map_zad)?;
-        output::info(&format!("  {} playlists", summaries.len()));
+        output::detail(&format!("{} playlists", summaries.len()));
 
+        let _scope = output::scope("playlists");
         let mut acc = Vec::with_capacity(summaries.len());
         for summary in summaries {
             let id = summary.id.clone();
@@ -254,7 +259,7 @@ async fn collect_ymusic(selection: Selection, wait: bool) -> Result<Envelope> {
         }
         acc
     } else {
-        output::info("skipping playlists (not selected)");
+        output::detail("skipping playlists (not selected)");
         Vec::new()
     };
 
@@ -315,7 +320,7 @@ fn write_to_file(path: &Path, body: &str) -> Result<()> {
         format!("{body}\n")
     };
     fs::write(path, with_newline).with_context(|| format!("writing {}", path.display()))?;
-    output::info(&format!("wrote {}", absolute_or_self(path).display()));
+    output::detail(&format!("wrote {}", absolute_or_self(path).display()));
     Ok(())
 }
 

@@ -40,10 +40,13 @@ use crate::zad_client::{self, map_zad};
 pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool, wait: bool) -> Result<()> {
     let (policy_path, _wrote) = permissions::ensure_default_for(provider, Profile::Playlist)?;
 
-    output::header(&format!("spotifai import ({})", provider.display_name()));
-    output::info(&format!("permissions: {}", policy_path.display()));
+    let _scope = output::section(
+        &format!("spotifai import ({})", provider.display_name()),
+        "import",
+    );
+    output::detail(&format!("permissions: {}", policy_path.display()));
     if dry_run {
-        output::info("dry-run: no playlists will be created or modified");
+        output::detail("dry-run: no playlists will be created or modified");
     }
 
     let raw = read_input(input_path)?;
@@ -52,7 +55,7 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool, wait: b
 
     let cross_provider = envelope.source.service != provider.as_str();
     if cross_provider {
-        output::info(&format!(
+        output::detail(&format!(
             "cross-provider migration: source `{}` → target `{}`; resolving tracks via search",
             envelope.source.service,
             provider.as_str()
@@ -87,7 +90,7 @@ async fn run_spotify(
     let client = zad_client::load_spotify_all()?;
     let http = zad_client::load_spotify_http(spotify_import_scopes())?;
 
-    output::info("fetching existing playlists on target…");
+    output::action("fetching existing playlists on target");
     zad_client::precall_check(Provider::Spotify, wait).await?;
     let existing = client
         .playlists(PlaylistsRequest::all())
@@ -97,10 +100,10 @@ async fn run_spotify(
         .iter()
         .map(|p| p.name.trim().to_ascii_lowercase())
         .collect();
-    output::info(&format!("{} existing playlists on target", existing.len()));
+    output::detail(&format!("{} existing playlists on target", existing.len()));
 
     let mut report = ImportReport::default();
-    output::info(&format!(
+    output::detail(&format!(
         "{} playlists in envelope",
         envelope.playlists.len()
     ));
@@ -150,7 +153,7 @@ async fn run_spotify(
         }
 
         if dry_run {
-            output::info(&format!("would create `{name}` with {} tracks", uris.len()));
+            output::detail(&format!("would create `{name}` with {} tracks", uris.len()));
             report.playlists_created += 1;
             report.tracks_added += uris.len();
             continue;
@@ -247,7 +250,7 @@ async fn run_ymusic(
 
     let client = zad_client::load_ymusic_all()?;
 
-    output::info("fetching existing playlists on target…");
+    output::action("fetching existing playlists on target");
     zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
     let existing = client
         .playlists(PlaylistsRequest::all())
@@ -261,10 +264,10 @@ async fn run_ymusic(
                 .map(|s| s.title.trim().to_ascii_lowercase())
         })
         .collect();
-    output::info(&format!("{} existing playlists on target", existing.len()));
+    output::detail(&format!("{} existing playlists on target", existing.len()));
 
     let mut report = ImportReport::default();
-    output::info(&format!(
+    output::detail(&format!(
         "{} playlists in envelope",
         envelope.playlists.len()
     ));
@@ -312,7 +315,7 @@ async fn run_ymusic(
         }
 
         if dry_run {
-            output::info(&format!(
+            output::detail(&format!(
                 "would create `{name}` with {} videos",
                 video_ids.len()
             ));

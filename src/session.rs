@@ -52,6 +52,7 @@ pub fn run_agent(
             profile.as_str(),
             policy_path.display()
         ));
+        output::hint("re-run `spotifai install` to sign the new file");
     }
     let policy = permissions::read_or(&policy_path, profile.default_policy(provider))?;
 
@@ -82,17 +83,18 @@ pub fn run_agent(
         std::env::set_var(SPOTIFAI_WAIT_ENV, if wait { "1" } else { "0" });
     }
 
-    output::header(&format!(
-        "spotifai {command_label} ({})",
-        provider.display_name()
-    ));
-    output::info(&format!("permissions: {}", policy_path.display()));
+    let _scope = output::section(
+        &format!("spotifai {command_label} ({})", provider.display_name()),
+        command_label_to_scope(command_label),
+    );
+    output::detail(&format!("permissions: {}", policy_path.display()));
     if yolo {
-        output::info(
+        output::warn(
             "yolo mode: zag tool-call approval prompts are off (spotifai api policy still applies)",
         );
     }
-    output::info("starting interactive zag session — Ctrl+D to exit\n");
+    output::info("starting interactive zag session — Ctrl+D to exit");
+    output::newline();
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -105,6 +107,19 @@ pub fn run_agent(
             .run(initial_prompt)
             .await
     })
+}
+
+/// Convert a runtime command label string into a `'static` scope
+/// label suitable for [`crate::output::section`]. Falls back to
+/// `"session"` for unknown labels — the scope is purely a log
+/// breadcrumb so a generic name is harmless.
+fn command_label_to_scope(label: &str) -> &'static str {
+    match label {
+        "ask" => "ask",
+        "playlist" => "playlist",
+        "clean" => "clean",
+        _ => "session",
+    }
 }
 
 /// Render the system prompt by extracting the `## System` section of

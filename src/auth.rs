@@ -111,7 +111,10 @@ pub fn run(provider: Provider, user_args: &[String]) -> Result<()> {
 }
 
 async fn run_async(provider: Provider, opts: AuthOptions) -> Result<()> {
-    output::header(&format!("spotifai auth ({})", provider.display_name()));
+    let _scope = output::section(
+        &format!("spotifai auth ({})", provider.display_name()),
+        "auth",
+    );
     match provider {
         Provider::Spotify => run_spotify(opts).await,
         Provider::YouTubeMusic => run_ymusic(opts).await,
@@ -125,15 +128,15 @@ async fn run_spotify(opts: AuthOptions) -> Result<()> {
             .map_err(|e| anyhow!("reading stored Spotify client-id from keychain failed: {e}"))?
         {
             Some(stored) => {
-                output::info(&format!(
-                    "Using stored Spotify client_id ({}…); pass --client-id to override.",
+                output::detail(&format!(
+                    "using stored client_id ({}…); pass --client-id to override",
                     stored.chars().take(8).collect::<String>()
                 ));
                 stored
             }
             None => {
                 print_spotify_setup_hint();
-                prompt_for("Spotify client_id")?
+                output::prompt("Spotify client_id")?
             }
         },
     };
@@ -165,16 +168,14 @@ async fn run_spotify(opts: AuthOptions) -> Result<()> {
         timeout: Duration::from_secs(120),
         redirect_scheme: RedirectScheme::Https,
     };
-    output::status(&format!(
-        "requested Spotify scopes: {}",
-        cfg.scopes.join(" ")
-    ));
+    output::action("running OAuth loopback flow (Spotify, PKCE)");
+    output::detail(&format!("requested scopes: {}", cfg.scopes.join(" ")));
     let tokens = run_loopback_flow(&cfg, opts.open_browser)
         .await
         .map_err(|e| anyhow!("Spotify OAuth failed: {e}"))?;
     let refresh = require_refresh(&tokens, "Spotify")?;
     if let Some(scope) = tokens.scope.as_deref() {
-        output::status(&format!("granted Spotify scopes: {scope}"));
+        output::detail(&format!("granted scopes: {scope}"));
     }
 
     secrets::store(
@@ -234,11 +235,11 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
     }
     let client_id = match opts.client_id {
         Some(s) => s,
-        None => prompt_for("YouTube Music (Google OAuth) client_id")?,
+        None => output::prompt("YouTube Music (Google OAuth) client_id")?,
     };
     let client_secret = match opts.client_secret {
         Some(s) => s,
-        None => prompt_for("YouTube Music (Google OAuth) client_secret")?,
+        None => output::prompt("YouTube Music (Google OAuth) client_secret")?,
     };
 
     let zad_scopes = full_zad_scopes();
@@ -263,16 +264,14 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
         timeout: Duration::from_secs(120),
         redirect_scheme: RedirectScheme::Http,
     };
-    output::status(&format!(
-        "requested YouTube Music scopes: {}",
-        cfg.scopes.join(" ")
-    ));
+    output::action("running OAuth loopback flow (Google Desktop)");
+    output::detail(&format!("requested scopes: {}", cfg.scopes.join(" ")));
     let tokens = run_loopback_flow(&cfg, opts.open_browser)
         .await
         .map_err(|e| anyhow!("YouTube Music OAuth failed: {e}"))?;
     let refresh = require_refresh(&tokens, "YouTube Music")?;
     if let Some(scope) = tokens.scope.as_deref() {
-        output::status(&format!("granted YouTube Music scopes: {scope}"));
+        output::detail(&format!("granted scopes: {scope}"));
         warn_if_youtube_scope_missing(scope);
     } else {
         output::warn(
@@ -418,16 +417,15 @@ fn require_refresh(tokens: &TokenSet, label: &str) -> Result<String> {
 /// loopback flow expects, so a user who follows these steps verbatim
 /// will pass the OAuth handshake without bouncing through the docs.
 fn print_spotify_setup_hint() {
-    output::info("");
-    output::info("First-time setup — you need a Spotify developer app to get a client_id:");
-    output::info("");
-    output::info("  1. Open https://developer.spotify.com/dashboard");
-    output::info("  2. Click \"Create app\" — name it anything (e.g. \"spotifai-local\")");
-    output::info("  3. Under \"Redirect URIs\", add: https://127.0.0.1");
-    output::info("     (any port works once the host is registered)");
-    output::info("  4. Save, then copy the \"Client ID\" from the app settings");
-    output::info("     (the Client Secret is not used — spotifai uses PKCE)");
-    output::info("");
+    output::newline();
+    output::hint("First-time setup — you need a Spotify developer app to get a client_id:");
+    output::detail("1. Open https://developer.spotify.com/dashboard");
+    output::detail("2. Click \"Create app\" — name it anything (e.g. \"spotifai-local\")");
+    output::detail("3. Under \"Redirect URIs\", add: https://127.0.0.1");
+    output::detail("   (any port works once the host is registered)");
+    output::detail("4. Save, then copy the \"Client ID\" from the app settings");
+    output::detail("   (the Client Secret is not used — spotifai uses PKCE)");
+    output::newline();
 }
 
 /// First-time setup hint shown before prompting for YouTube Music
@@ -435,41 +433,19 @@ fn print_spotify_setup_hint() {
 /// and credentials pages so the user does not have to navigate the
 /// Google Cloud console themselves.
 fn print_ymusic_setup_hint() {
-    output::info("");
-    output::info("First-time setup — you need Google OAuth credentials with the YouTube Data API:");
-    output::info("");
-    output::info("  1. Enable the API:");
-    output::info("     https://console.cloud.google.com/apis/library/youtube.googleapis.com");
-    output::info("  2. Create an OAuth client:");
-    output::info("     https://console.cloud.google.com/apis/credentials");
-    output::info(
-        "     → \"Create credentials\" → \"OAuth client ID\" → application type \"Desktop app\"",
+    output::newline();
+    output::hint("First-time setup — you need Google OAuth credentials with the YouTube Data API:");
+    output::detail("1. Enable the API:");
+    output::detail("   https://console.cloud.google.com/apis/library/youtube.googleapis.com");
+    output::detail("2. Create an OAuth client:");
+    output::detail("   https://console.cloud.google.com/apis/credentials");
+    output::detail(
+        "   → \"Create credentials\" → \"OAuth client ID\" → application type \"Desktop app\"",
     );
-    output::info("  3. While the consent screen is in Testing, add yourself as a test user:");
-    output::info("     https://console.cloud.google.com/apis/credentials/consent");
-    output::info("  4. Copy the \"Client ID\" and \"Client secret\" from the new credential");
-    output::info("");
-}
-
-fn prompt_for(label: &str) -> Result<String> {
-    use std::io::{BufRead as _, Write as _};
-    let stderr = std::io::stderr();
-    {
-        let mut handle = stderr.lock();
-        write!(handle, "{label}: ").context("writing prompt")?;
-        handle.flush().context("flushing prompt")?;
-    }
-    let stdin = std::io::stdin();
-    let mut line = String::new();
-    stdin
-        .lock()
-        .read_line(&mut line)
-        .context("reading prompt input")?;
-    let trimmed = line.trim().to_string();
-    if trimmed.is_empty() {
-        bail!("empty value entered for `{label}`");
-    }
-    Ok(trimmed)
+    output::detail("3. While the consent screen is in Testing, add yourself as a test user:");
+    output::detail("   https://console.cloud.google.com/apis/credentials/consent");
+    output::detail("4. Copy the \"Client ID\" and \"Client secret\" from the new credential");
+    output::newline();
 }
 
 // `BTreeSet` import kept available for callers that pass scope sets

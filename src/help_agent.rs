@@ -71,6 +71,18 @@ pub fn print_help_agent() {
         out,
         "  SPOTIFAI_LOG            tracing_subscriber EnvFilter directive for the always-on debug.log."
     );
+    let _ = writeln!(
+        out,
+        "  SPOTIFAI_COLOR          auto|always|never — gate ANSI on stderr (see docs/logging.md)."
+    );
+    let _ = writeln!(
+        out,
+        "  SPOTIFAI_GLYPHS         auto|unicode|ascii — pick the glyph set used by the central output module."
+    );
+    let _ = writeln!(
+        out,
+        "  NO_COLOR                Any non-empty value disables ANSI on stderr (https://no-color.org)."
+    );
     let _ = writeln!(out);
 
     let _ = writeln!(out, "Discovery (recommended for agents):");
@@ -173,6 +185,14 @@ pub fn print_debug_agent() {
     let _ = writeln!(
         out,
         "  SPOTIFAI_LOG            tracing_subscriber EnvFilter directive (default: debug)."
+    );
+    let _ = writeln!(
+        out,
+        "  SPOTIFAI_COLOR          auto|always|never — gate ANSI on stderr. NO_COLOR=1 disables too."
+    );
+    let _ = writeln!(
+        out,
+        "  SPOTIFAI_GLYPHS         auto|unicode|ascii — pick the glyph set printed to stderr."
     );
     let _ = writeln!(
         out,
