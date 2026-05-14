@@ -211,7 +211,7 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "import",
-        usage: "spotifai import [--provider <slug>] [--input <path>] [--dry-run]",
+        usage: "spotifai import [--provider <slug>] [--input <path>] [--dry-run] [--no-resume]",
         summary: "Recreate playlists from a `spotifai export` envelope on the active provider.",
         flags: &[
             FlagSpec {
@@ -232,12 +232,19 @@ pub static COMMAND_SPECS: &[CommandSpec] = &[
                 default: "false",
                 description: "Preview without making any zad write calls.",
             },
+            FlagSpec {
+                name: "--no-resume",
+                ty: "bool",
+                default: "false",
+                description: "Ignore saved progress under ~/.spotifai/import-state/ and start over.",
+            },
         ],
         exit_codes: COMMON_EXIT_CODES,
         examples: &[
             "spotifai import --input library.json",
             "spotifai export --provider spotify | spotifai import --provider ymusic",
             "spotifai import --provider ymusic --input library.json --dry-run",
+            "spotifai import --provider ymusic --input library.json --no-resume",
         ],
     },
     CommandSpec {

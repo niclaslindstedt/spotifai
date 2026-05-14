@@ -5,7 +5,7 @@
 ## Synopsis
 
 ```
-spotifai import [--provider <slug>] [--input PATH] [--dry-run]
+spotifai import [--provider <slug>] [--input PATH] [--dry-run] [--no-resume]
 ```
 
 ## Description
@@ -26,7 +26,19 @@ For each playlist in the envelope:
 
 4. **Track addition.** Resolved IDs are added to the new playlist via the typed `playlists add` request, chunked at 50 items per call to match both Spotify and YouTube Music API page caps.
 
-Failures inside one playlist (an unresolvable track, a single failed `playlists add` chunk, even a failed `playlists create`) accumulate into the final summary and **do not abort** the import. Re-running with the same envelope picks up where the previous run left off because already-imported playlists are skipped on the duplicate-name guard.
+Failures inside one playlist (an unresolvable track, a single failed `playlists add` chunk, even a failed `playlists create`) accumulate into the final summary and **do not abort** the import. A rate-limit hit (Spotify HTTP 429, or YouTube Music HTTP 429 / Google-quota HTTP 403) **does** abort with a non-zero exit, but progress is persisted before the error is surfaced (see "Resume" below) so re-running the same command picks up exactly where it stopped.
+
+### Resume
+
+Progress is persisted to `~/.spotifai/import-state/<provider>-<fingerprint>.json` after every successful step. The fingerprint is a stable hash of the envelope's `source.service`, `exported_at`, the target `--provider`, and the ordered playlist names — re-running with the same envelope and target reuses the same state file; a different envelope or target starts a fresh one. Each playlist record holds its lifecycle status (`completed`, `skipped_duplicate`, `in_progress`, `failed_create`), the target playlist id once `create_playlist` returns, the resolved track ids in order, and how many of those have already been added.
+
+On re-run:
+
+- Playlists in a terminal state (`completed`, `skipped_duplicate`, `failed_create`) are skipped without any zad calls.
+- Playlists in `in_progress` reuse the saved target id and resolved track ids — no second `create_playlist`, no re-resolution — and resume `playlists add` at the saved offset.
+- The state file is deleted automatically once every playlist reaches a terminal state.
+
+Pass `--no-resume` to ignore the saved state and start over (the file is deleted at the start of the run). `--dry-run` does not read or write any state file.
 
 `spotifai import` is **scope-limited to playlists**. The envelope's top-level `tracks` (liked songs / liked videos) and `albums` (saved albums) buckets are intentionally ignored — recreating them would require widening the `playlist` permission profile (`library tracks save`, `library albums save`, `library like`), which is out of scope for migration. If you need them, run the `spotifai api` write verbs directly with a profile of your own.
 
@@ -54,7 +66,8 @@ Status messages (`== spotifai import (Spotify) ==`, per-playlist results, the fi
 |---|---|---|---|
 | `--provider <slug>` | enum | `spotify` | Backing provider to import the playlists onto. One of `spotify`, `ymusic`. |
 | `--input PATH`, `-i PATH` | path | — | Read the envelope from this file. Without it, the envelope is read from stdin. |
-| `--dry-run` | bool | false | Preview the import without making any zad write calls. The duplicate-name pre-fetch and any cross-provider search calls still run because both are read-only and produce a more realistic preview. |
+| `--dry-run` | bool | false | Preview the import without making any zad write calls. The duplicate-name pre-fetch and any cross-provider search calls still run because both are read-only and produce a more realistic preview. Does not read or write the resume state file. |
+| `--no-resume` | bool | false | Ignore any saved progress under `~/.spotifai/import-state/` for this envelope and start the import from scratch. Useful when an earlier run left stale state behind (e.g. after manually deleting playlists on the target). |
 
 The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `spotifai import` defaults to fail-fast (`--no-wait`); a cross-provider migration that resolves thousands of tracks may want `--wait` so an early rate-limit hit (Spotify 429, or ymusic 429 / Google-quota 403) from the resolver doesn't abort the whole run.
 
@@ -74,7 +87,7 @@ OAuth tokens are read from the OS keychain by zad on every call; no environment 
 | Code | Meaning |
 |---|---|
 | 0   | Import finished. Per-playlist or per-track failures during the loop are non-fatal — they accumulate into the final summary line on stderr. |
-| 1   | Fatal error: input read failure, JSON parse failure, unsupported `schema_version`, missing `source.service`, malformed `playlists` array, or existing-playlist pre-fetch failure. |
+| 1   | Fatal error: input read failure, JSON parse failure, unsupported `schema_version`, missing `source.service`, malformed `playlists` array, existing-playlist pre-fetch failure, or a rate-limit hit (Spotify HTTP 429, or YouTube Music HTTP 429 / Google-quota HTTP 403). On a rate-limit interrupt, progress is saved under `~/.spotifai/import-state/` and re-running the same command resumes from the saved offset. |
 | 2   | Usage error parsing `spotifai import` flags. |
 
 ## Examples
@@ -95,6 +108,18 @@ Preview a migration without writing anything to the target account:
 
 ```sh
 spotifai export --provider spotify | spotifai import --provider ymusic --dry-run
+```
+
+Resume an interrupted import — re-run the same command (the state file under `~/.spotifai/import-state/` is consulted automatically):
+
+```sh
+spotifai import --provider ymusic --input ~/backups/spotify-2026-05.json
+```
+
+Discard saved progress and start over:
+
+```sh
+spotifai import --provider ymusic --input ~/backups/spotify-2026-05.json --no-resume
 ```
 
 Pre-filter the envelope before importing — only the playlists named "Focus" and "Drive":

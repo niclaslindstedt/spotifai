@@ -22,6 +22,12 @@
 //! Existing-name collision policy: skip and warn. The pre-fetch of
 //! existing playlists runs even under `--dry-run` so the preview is
 //! realistic; it is read-only.
+//!
+//! Resume: progress is persisted to
+//! `~/.spotifai/import-state/<provider>-<fingerprint>.json` (see
+//! [`crate::import_state`]). On re-run, completed playlists are
+//! skipped and in-progress ones resume from the last saved track
+//! offset. Pass `--no-resume` to ignore any prior state.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -31,13 +37,20 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 
 use crate::export_schema::{Envelope, Playlist, SCHEMA_VERSION, Track};
+use crate::import_state::{self, ImportState, PlaylistState, PlaylistStatus};
 use crate::output;
 use crate::permissions::{self, Profile};
 use crate::providers::Provider;
 use crate::zad_client::{self, map_zad};
 
 /// Run the import.
-pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool, wait: bool) -> Result<()> {
+pub fn run(
+    provider: Provider,
+    input_path: Option<&Path>,
+    dry_run: bool,
+    wait: bool,
+    no_resume: bool,
+) -> Result<()> {
     let (policy_path, _wrote) = permissions::ensure_default_for(provider, Profile::Playlist)?;
 
     let _scope = output::section(
@@ -54,6 +67,12 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool, wait: b
     validate_schema_version(&envelope)?;
 
     let cross_provider = envelope.source.service != provider.as_str();
+    output::info(&format!(
+        "envelope: source `{}` exported {} ({} playlists)",
+        envelope.source.service,
+        envelope.exported_at,
+        envelope.playlists.len(),
+    ));
     if cross_provider {
         output::detail(&format!(
             "cross-provider migration: source `{}` → target `{}`; resolving tracks via search",
@@ -62,17 +81,75 @@ pub fn run(provider: Provider, input_path: Option<&Path>, dry_run: bool, wait: b
         ));
     }
 
+    let fp = import_state::fingerprint(&envelope, provider);
+    let state_path = import_state::state_path(provider, &fp)?;
+    let state = if dry_run {
+        ImportState::new(fp.clone(), provider)
+    } else if no_resume {
+        import_state::clear(&state_path)?;
+        output::detail("--no-resume: ignoring any prior state");
+        ImportState::new(fp.clone(), provider)
+    } else {
+        match import_state::load(&state_path)? {
+            Some(prior) => {
+                let c = prior.counts();
+                output::info(&format!(
+                    "resuming from {} (started {}, last update {})",
+                    state_path.display(),
+                    prior.started_at,
+                    prior.last_updated_at,
+                ));
+                output::detail(&format!(
+                    "previously completed: {} done, {} skipped duplicate, \
+                     {} in progress, {} failed create; {} tracks added so far",
+                    c.completed,
+                    c.skipped_duplicate,
+                    c.in_progress,
+                    c.failed_create,
+                    c.tracks_added,
+                ));
+                prior
+            }
+            None => ImportState::new(fp.clone(), provider),
+        }
+    };
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("building tokio runtime")?;
 
-    rt.block_on(async {
+    let result = rt.block_on(async {
         match provider {
-            Provider::Spotify => run_spotify(envelope, dry_run, cross_provider, wait).await,
-            Provider::YouTubeMusic => run_ymusic(envelope, dry_run, cross_provider, wait).await,
+            Provider::Spotify => {
+                run_spotify(envelope, dry_run, cross_provider, wait, state, &state_path).await
+            }
+            Provider::YouTubeMusic => {
+                run_ymusic(envelope, dry_run, cross_provider, wait, state, &state_path).await
+            }
         }
-    })
+    });
+
+    match result {
+        Ok((report, state)) => {
+            if !dry_run {
+                let _ = import_state::save(&state, &state_path);
+                if every_terminal(&state) {
+                    let _ = import_state::clear(&state_path);
+                    output::detail("all playlists processed; cleared state file");
+                } else {
+                    output::detail(&format!("state saved to {}", state_path.display()));
+                }
+            }
+            output::status(&import_summary_line(&report));
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn every_terminal(state: &ImportState) -> bool {
+    state.playlists.values().all(PlaylistState::is_terminal)
 }
 
 // ---------------------------------------------------------------------------
@@ -84,8 +161,10 @@ async fn run_spotify(
     dry_run: bool,
     cross_provider: bool,
     wait: bool,
-) -> Result<()> {
-    use zad::service::spotify::{CreatePlaylistRequest, PlaylistsRequest, SearchRequest};
+    mut state: ImportState,
+    state_path: &Path,
+) -> Result<(ImportReport, ImportState)> {
+    use zad::service::spotify::{CreatePlaylistRequest, PlaylistsRequest};
 
     let client = zad_client::load_spotify_all()?;
     let http = zad_client::load_spotify_http(spotify_import_scopes())?;
@@ -103,54 +182,63 @@ async fn run_spotify(
     output::detail(&format!("{} existing playlists on target", existing.len()));
 
     let mut report = ImportReport::default();
-    output::detail(&format!(
-        "{} playlists in envelope",
-        envelope.playlists.len()
-    ));
-    for playlist in envelope.playlists {
+    let total = envelope.playlists.len();
+    output::detail(&format!("{total} playlists in envelope"));
+
+    for (idx, playlist) in envelope.playlists.into_iter().enumerate() {
         let name = playlist.name.trim().to_string();
+        let header_label = format!("`{name}` ({} tracks)", playlist.tracks.len());
+        output::step(idx + 1, total, &format!("importing {header_label}"));
+
         if name.is_empty() {
             output::warn("skipping playlist with empty name");
             report.playlists_failed += 1;
             continue;
         }
-        if existing_names.contains(&name.to_ascii_lowercase()) {
+
+        if let Some(prior) = state.get(&name)
+            && prior.is_terminal()
+        {
+            tally_terminal(&mut report, prior);
+            output::detail(&format!(
+                "previously {} — skipping",
+                terminal_label(prior.status)
+            ));
+            continue;
+        }
+
+        if existing_names.contains(&name.to_ascii_lowercase())
+            && state.get(&name).is_none_or(|s| s.target_id.is_none())
+        {
             output::warn(&format!(
                 "playlist `{name}` already exists on target — skipping"
             ));
             report.playlists_skipped_duplicate += 1;
+            if !dry_run {
+                state.upsert(&name, PlaylistState::new_skipped_duplicate());
+                let _ = import_state::save(&state, state_path);
+            }
             continue;
         }
 
-        // Resolve each track to a Spotify URI.
-        let mut uris: Vec<String> = Vec::with_capacity(playlist.tracks.len());
-        for track in &playlist.tracks {
-            let resolved = if cross_provider {
-                resolve_spotify_via_search(track, |q, types| async {
-                    zad_client::precall_check(Provider::Spotify, wait).await?;
-                    let req = SearchRequest::new(q, types, 1).map_err(map_zad)?;
-                    let res = client.search(req).await.map_err(map_zad)?;
-                    Ok(res
-                        .tracks
-                        .as_ref()
-                        .and_then(|p| p.items.first())
-                        .map(|t| t.id.clone()))
-                })
-                .await?
-            } else {
-                track.source_id_for("spotify").map(str::to_string)
-            };
-            match resolved {
-                Some(id) => uris.push(spotify_uri_for(&id)),
-                None => {
-                    output::warn(&format!(
-                        "could not resolve `{}` on Spotify",
-                        track_label(track)
-                    ));
-                    report.tracks_unresolved += 1;
-                }
+        // Resolve (or reuse cached resolution).
+        let prior = state.get(&name).cloned();
+        let (resolved_ids, unresolved) = match &prior {
+            Some(s) if !s.resolved_track_ids.is_empty() => {
+                output::detail(&format!(
+                    "reusing {} resolved tracks from prior run ({} unresolved)",
+                    s.resolved_track_ids.len(),
+                    s.unresolved_count,
+                ));
+                (s.resolved_track_ids.clone(), s.unresolved_count)
             }
-        }
+            _ => {
+                output::action(&format!("resolving {} tracks", playlist.tracks.len()));
+                resolve_spotify_tracks(&client, &playlist, cross_provider, wait).await?
+            }
+        };
+        report.tracks_unresolved += unresolved;
+        let uris: Vec<String> = resolved_ids.iter().map(|id| spotify_uri_for(id)).collect();
 
         if dry_run {
             output::detail(&format!("would create `{name}` with {} tracks", uris.len()));
@@ -159,42 +247,191 @@ async fn run_spotify(
             continue;
         }
 
-        let req = CreatePlaylistRequest::new(
-            name.clone(),
-            playlist.description.clone(),
-            playlist.public.unwrap_or(false),
-        )
-        .map_err(map_zad)?;
-        zad_client::precall_check(Provider::Spotify, wait).await?;
-        let created = match client.create_playlist(req).await {
-            Ok(p) => p,
-            Err(e) => {
-                output::warn(&format!("`create_playlist` failed for `{name}`: {e}"));
-                report.playlists_failed += 1;
-                continue;
+        let target_id = match prior.as_ref().and_then(|s| s.target_id.clone()) {
+            Some(id) => {
+                output::detail(&format!("reusing prior playlist id `{id}`"));
+                id
+            }
+            None => {
+                output::action(&format!("creating playlist `{name}` on target"));
+                let req = CreatePlaylistRequest::new(
+                    name.clone(),
+                    playlist.description.clone(),
+                    playlist.public.unwrap_or(false),
+                )
+                .map_err(map_zad)?;
+                zad_client::precall_check(Provider::Spotify, wait).await?;
+                match client.create_playlist(req).await {
+                    Ok(p) => {
+                        state.upsert(
+                            &name,
+                            PlaylistState {
+                                status: PlaylistStatus::InProgress,
+                                target_id: Some(p.id.clone()),
+                                resolved_track_ids: resolved_ids.clone(),
+                                unresolved_count: unresolved,
+                                tracks_added: 0,
+                                tracks_failed: 0,
+                            },
+                        );
+                        let _ = import_state::save(&state, state_path);
+                        p.id
+                    }
+                    Err(e) => {
+                        if is_rate_limit_error(&e) {
+                            return Err(rate_limit_bail(
+                                &name,
+                                "create_playlist",
+                                e,
+                                state,
+                                state_path,
+                                &report,
+                            ));
+                        }
+                        output::warn(&format!("`create_playlist` failed for `{name}`: {e}"));
+                        state.upsert(&name, PlaylistState::new_failed_create());
+                        let _ = import_state::save(&state, state_path);
+                        report.playlists_failed += 1;
+                        continue;
+                    }
+                }
             }
         };
 
+        // Resume mid-add: skip past tracks the prior run already added.
+        let already_added = prior.as_ref().map(|s| s.tracks_added).unwrap_or(0);
+        let prior_failed = prior.as_ref().map(|s| s.tracks_failed).unwrap_or(0);
+        let remaining: Vec<String> = uris.iter().skip(already_added).cloned().collect();
+        if already_added > 0 {
+            output::detail(&format!(
+                "{already_added} of {} tracks already added in a prior run; \
+                 continuing with {} remaining",
+                uris.len(),
+                remaining.len(),
+            ));
+        }
+
         // Spotify caps `add_playlist_tracks` at 100 URIs per call.
-        let mut added = 0usize;
-        for chunk in uris.chunks(100) {
-            let chunk_vec: Vec<String> = chunk.to_vec();
+        let mut added_now = 0usize;
+        let mut failed_now = 0usize;
+        let mut hit_rate_limit: Option<zad::ZadError> = None;
+        for chunk in remaining.chunks(100) {
             zad_client::precall_check(Provider::Spotify, wait).await?;
-            match http.add_playlist_tracks(&created.id, &chunk_vec).await {
-                Ok(()) => added += chunk.len(),
+            let chunk_vec: Vec<String> = chunk.to_vec();
+            match http.add_playlist_tracks(&target_id, &chunk_vec).await {
+                Ok(()) => {
+                    added_now += chunk.len();
+                    persist_progress(
+                        &mut state,
+                        state_path,
+                        &name,
+                        &target_id,
+                        &resolved_ids,
+                        unresolved,
+                        already_added + added_now,
+                        prior_failed + failed_now,
+                        PlaylistStatus::InProgress,
+                    );
+                }
                 Err(e) => {
+                    if is_rate_limit_error(&e) {
+                        hit_rate_limit = Some(e);
+                        break;
+                    }
                     output::warn(&format!("`add_playlist_tracks` failed for `{name}`: {e}"));
-                    report.tracks_failed += chunk.len();
+                    failed_now += chunk.len();
                 }
             }
         }
+
+        let total_added = already_added + added_now;
+        let total_failed = prior_failed + failed_now;
+
+        if let Some(e) = hit_rate_limit {
+            persist_progress(
+                &mut state,
+                state_path,
+                &name,
+                &target_id,
+                &resolved_ids,
+                unresolved,
+                total_added,
+                total_failed,
+                PlaylistStatus::InProgress,
+            );
+            report.tracks_added += added_now;
+            report.tracks_failed += failed_now;
+            return Err(rate_limit_bail(
+                &name,
+                "add_playlist_tracks",
+                e,
+                state,
+                state_path,
+                &report,
+            ));
+        }
+
+        persist_progress(
+            &mut state,
+            state_path,
+            &name,
+            &target_id,
+            &resolved_ids,
+            unresolved,
+            total_added,
+            total_failed,
+            PlaylistStatus::Completed,
+        );
         report.playlists_created += 1;
-        report.tracks_added += added;
-        output::status(&format!("created `{name}` with {added} tracks"));
+        report.tracks_added += added_now;
+        report.tracks_failed += failed_now;
+        output::status(&format!(
+            "created `{name}` with {total_added}/{} tracks ({unresolved} unresolved, {total_failed} failed adds)",
+            resolved_ids.len(),
+        ));
     }
 
-    output::status(&import_summary_line(&report));
-    Ok(())
+    Ok((report, state))
+}
+
+async fn resolve_spotify_tracks(
+    client: &zad::service::spotify::Spotify,
+    playlist: &Playlist,
+    cross_provider: bool,
+    wait: bool,
+) -> Result<(Vec<String>, usize)> {
+    use zad::service::spotify::SearchRequest;
+
+    let mut ids: Vec<String> = Vec::with_capacity(playlist.tracks.len());
+    let mut unresolved = 0usize;
+    for track in &playlist.tracks {
+        let resolved = if cross_provider {
+            resolve_spotify_via_search(track, |q, types| async {
+                zad_client::precall_check(Provider::Spotify, wait).await?;
+                let req = SearchRequest::new(q, types, 1).map_err(map_zad)?;
+                let res = client.search(req).await.map_err(map_zad)?;
+                Ok(res
+                    .tracks
+                    .as_ref()
+                    .and_then(|p| p.items.first())
+                    .map(|t| t.id.clone()))
+            })
+            .await?
+        } else {
+            track.source_id_for("spotify").map(str::to_string)
+        };
+        match resolved {
+            Some(id) => ids.push(id),
+            None => {
+                output::warn(&format!(
+                    "could not resolve `{}` on Spotify",
+                    track_label(track)
+                ));
+                unresolved += 1;
+            }
+        }
+    }
+    Ok((ids, unresolved))
 }
 
 fn spotify_import_scopes() -> BTreeSet<String> {
@@ -225,10 +462,10 @@ where
             return Ok(Some(id));
         }
     }
-    if let Some(q) = track.search_query() {
-        if let Some(id) = search(q, vec!["track".into()]).await? {
-            return Ok(Some(id));
-        }
+    if let Some(q) = track.search_query()
+        && let Some(id) = search(q, vec!["track".into()]).await?
+    {
+        return Ok(Some(id));
     }
     Ok(None)
 }
@@ -242,11 +479,11 @@ async fn run_ymusic(
     dry_run: bool,
     cross_provider: bool,
     wait: bool,
-) -> Result<()> {
+    mut state: ImportState,
+    state_path: &Path,
+) -> Result<(ImportReport, ImportState)> {
     use zad::service::ymusic::client::Privacy;
-    use zad::service::ymusic::{
-        AddPlaylistItemRequest, CreatePlaylistRequest, PlaylistsRequest, SearchRequest,
-    };
+    use zad::service::ymusic::{AddPlaylistItemRequest, CreatePlaylistRequest, PlaylistsRequest};
 
     let client = zad_client::load_ymusic_all()?;
 
@@ -267,60 +504,69 @@ async fn run_ymusic(
     output::detail(&format!("{} existing playlists on target", existing.len()));
 
     let mut report = ImportReport::default();
-    output::detail(&format!(
-        "{} playlists in envelope",
-        envelope.playlists.len()
-    ));
-    for playlist in envelope.playlists {
+    let total = envelope.playlists.len();
+    output::detail(&format!("{total} playlists in envelope"));
+
+    for (idx, playlist) in envelope.playlists.into_iter().enumerate() {
         let name = playlist.name.trim().to_string();
+        let header_label = format!("`{name}` ({} tracks)", playlist.tracks.len());
+        output::step(idx + 1, total, &format!("importing {header_label}"));
+
         if name.is_empty() {
             output::warn("skipping playlist with empty name");
             report.playlists_failed += 1;
             continue;
         }
-        if existing_names.contains(&name.to_ascii_lowercase()) {
+
+        if let Some(prior) = state.get(&name)
+            && prior.is_terminal()
+        {
+            tally_terminal(&mut report, prior);
+            output::detail(&format!(
+                "previously {} — skipping",
+                terminal_label(prior.status)
+            ));
+            continue;
+        }
+
+        if existing_names.contains(&name.to_ascii_lowercase())
+            && state.get(&name).is_none_or(|s| s.target_id.is_none())
+        {
             output::warn(&format!(
                 "playlist `{name}` already exists on target — skipping"
             ));
             report.playlists_skipped_duplicate += 1;
+            if !dry_run {
+                state.upsert(&name, PlaylistState::new_skipped_duplicate());
+                let _ = import_state::save(&state, state_path);
+            }
             continue;
         }
 
-        let mut video_ids: Vec<String> = Vec::with_capacity(playlist.tracks.len());
-        for track in &playlist.tracks {
-            let resolved = if cross_provider {
-                resolve_ymusic_via_search(track, |q| async {
-                    zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-                    let req = SearchRequest::new(q, vec!["video".into()], 1).map_err(map_zad)?;
-                    let res = client.search(req).await.map_err(map_zad)?;
-                    Ok(res
-                        .into_iter()
-                        .next()
-                        .and_then(|item| item.id.and_then(|id| id.video_id)))
-                })
-                .await?
-            } else {
-                track.source_id_for("ymusic").map(str::to_string)
-            };
-            match resolved {
-                Some(id) => video_ids.push(id),
-                None => {
-                    output::warn(&format!(
-                        "could not resolve `{}` on YouTube Music",
-                        track_label(track)
-                    ));
-                    report.tracks_unresolved += 1;
-                }
+        let prior = state.get(&name).cloned();
+        let (resolved_ids, unresolved) = match &prior {
+            Some(s) if !s.resolved_track_ids.is_empty() => {
+                output::detail(&format!(
+                    "reusing {} resolved videos from prior run ({} unresolved)",
+                    s.resolved_track_ids.len(),
+                    s.unresolved_count,
+                ));
+                (s.resolved_track_ids.clone(), s.unresolved_count)
             }
-        }
+            _ => {
+                output::action(&format!("resolving {} tracks", playlist.tracks.len()));
+                resolve_ymusic_tracks(&client, &playlist, cross_provider, wait).await?
+            }
+        };
+        report.tracks_unresolved += unresolved;
 
         if dry_run {
             output::detail(&format!(
                 "would create `{name}` with {} videos",
-                video_ids.len()
+                resolved_ids.len(),
             ));
             report.playlists_created += 1;
-            report.tracks_added += video_ids.len();
+            report.tracks_added += resolved_ids.len();
             continue;
         }
 
@@ -329,38 +575,189 @@ async fn run_ymusic(
         } else {
             Privacy::Private
         };
-        let req = CreatePlaylistRequest::new(name.clone(), playlist.description.clone(), privacy)
-            .map_err(map_zad)?;
-        zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-        let created = match client.create_playlist(req).await {
-            Ok(p) => p,
-            Err(e) => {
-                output::warn(&format!("`create_playlist` failed for `{name}`: {e}"));
-                report.playlists_failed += 1;
-                continue;
+
+        let target_id = match prior.as_ref().and_then(|s| s.target_id.clone()) {
+            Some(id) => {
+                output::detail(&format!("reusing prior playlist id `{id}`"));
+                id
+            }
+            None => {
+                output::action(&format!("creating playlist `{name}` on target"));
+                let req =
+                    CreatePlaylistRequest::new(name.clone(), playlist.description.clone(), privacy)
+                        .map_err(map_zad)?;
+                zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
+                match client.create_playlist(req).await {
+                    Ok(p) => {
+                        state.upsert(
+                            &name,
+                            PlaylistState {
+                                status: PlaylistStatus::InProgress,
+                                target_id: Some(p.id.clone()),
+                                resolved_track_ids: resolved_ids.clone(),
+                                unresolved_count: unresolved,
+                                tracks_added: 0,
+                                tracks_failed: 0,
+                            },
+                        );
+                        let _ = import_state::save(&state, state_path);
+                        p.id
+                    }
+                    Err(e) => {
+                        if is_rate_limit_error(&e) {
+                            return Err(rate_limit_bail(
+                                &name,
+                                "create_playlist",
+                                e,
+                                state,
+                                state_path,
+                                &report,
+                            ));
+                        }
+                        output::warn(&format!("`create_playlist` failed for `{name}`: {e}"));
+                        state.upsert(&name, PlaylistState::new_failed_create());
+                        let _ = import_state::save(&state, state_path);
+                        report.playlists_failed += 1;
+                        continue;
+                    }
+                }
             }
         };
 
-        let mut added = 0usize;
-        for video_id in &video_ids {
-            let req = AddPlaylistItemRequest::new(created.id.clone(), video_id.clone())
+        let already_added = prior.as_ref().map(|s| s.tracks_added).unwrap_or(0);
+        let prior_failed = prior.as_ref().map(|s| s.tracks_failed).unwrap_or(0);
+        let remaining: Vec<&String> = resolved_ids.iter().skip(already_added).collect();
+        if already_added > 0 {
+            output::detail(&format!(
+                "{already_added} of {} videos already added in a prior run; \
+                 continuing with {} remaining",
+                resolved_ids.len(),
+                remaining.len(),
+            ));
+        }
+
+        let mut added_now = 0usize;
+        let mut failed_now = 0usize;
+        let mut hit_rate_limit: Option<zad::ZadError> = None;
+        for video_id in remaining {
+            let req = AddPlaylistItemRequest::new(target_id.clone(), video_id.clone())
                 .map_err(map_zad)?;
             zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
             match client.add_playlist_item(req).await {
-                Ok(_) => added += 1,
+                Ok(_) => {
+                    added_now += 1;
+                    if (already_added + added_now).is_multiple_of(10) {
+                        persist_progress(
+                            &mut state,
+                            state_path,
+                            &name,
+                            &target_id,
+                            &resolved_ids,
+                            unresolved,
+                            already_added + added_now,
+                            prior_failed + failed_now,
+                            PlaylistStatus::InProgress,
+                        );
+                    }
+                }
                 Err(e) => {
+                    if is_rate_limit_error(&e) {
+                        hit_rate_limit = Some(e);
+                        break;
+                    }
                     output::warn(&format!("`add_playlist_item` failed for `{name}`: {e}"));
-                    report.tracks_failed += 1;
+                    failed_now += 1;
                 }
             }
         }
+
+        let total_added = already_added + added_now;
+        let total_failed = prior_failed + failed_now;
+
+        if let Some(e) = hit_rate_limit {
+            persist_progress(
+                &mut state,
+                state_path,
+                &name,
+                &target_id,
+                &resolved_ids,
+                unresolved,
+                total_added,
+                total_failed,
+                PlaylistStatus::InProgress,
+            );
+            report.tracks_added += added_now;
+            report.tracks_failed += failed_now;
+            return Err(rate_limit_bail(
+                &name,
+                "add_playlist_item",
+                e,
+                state,
+                state_path,
+                &report,
+            ));
+        }
+
+        persist_progress(
+            &mut state,
+            state_path,
+            &name,
+            &target_id,
+            &resolved_ids,
+            unresolved,
+            total_added,
+            total_failed,
+            PlaylistStatus::Completed,
+        );
         report.playlists_created += 1;
-        report.tracks_added += added;
-        output::status(&format!("created `{name}` with {added} videos"));
+        report.tracks_added += added_now;
+        report.tracks_failed += failed_now;
+        output::status(&format!(
+            "created `{name}` with {total_added}/{} videos ({unresolved} unresolved, {total_failed} failed adds)",
+            resolved_ids.len(),
+        ));
     }
 
-    output::status(&import_summary_line(&report));
-    Ok(())
+    Ok((report, state))
+}
+
+async fn resolve_ymusic_tracks(
+    client: &zad::service::ymusic::Ymusic,
+    playlist: &Playlist,
+    cross_provider: bool,
+    wait: bool,
+) -> Result<(Vec<String>, usize)> {
+    use zad::service::ymusic::SearchRequest;
+
+    let mut ids: Vec<String> = Vec::with_capacity(playlist.tracks.len());
+    let mut unresolved = 0usize;
+    for track in &playlist.tracks {
+        let resolved = if cross_provider {
+            resolve_ymusic_via_search(track, |q| async {
+                zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
+                let req = SearchRequest::new(q, vec!["video".into()], 1).map_err(map_zad)?;
+                let res = client.search(req).await.map_err(map_zad)?;
+                Ok(res
+                    .into_iter()
+                    .next()
+                    .and_then(|item| item.id.and_then(|id| id.video_id)))
+            })
+            .await?
+        } else {
+            track.source_id_for("ymusic").map(str::to_string)
+        };
+        match resolved {
+            Some(id) => ids.push(id),
+            None => {
+                output::warn(&format!(
+                    "could not resolve `{}` on YouTube Music",
+                    track_label(track)
+                ));
+                unresolved += 1;
+            }
+        }
+    }
+    Ok((ids, unresolved))
 }
 
 async fn resolve_ymusic_via_search<F, Fut>(track: &Track, mut search: F) -> Result<Option<String>>
@@ -370,10 +767,10 @@ where
 {
     // YouTube has no ISRC search support — fall straight to title +
     // artist text search.
-    if let Some(q) = track.search_query() {
-        if let Some(id) = search(q).await? {
-            return Ok(Some(id));
-        }
+    if let Some(q) = track.search_query()
+        && let Some(id) = search(q).await?
+    {
+        return Ok(Some(id));
     }
     Ok(None)
 }
@@ -381,6 +778,117 @@ where
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn persist_progress(
+    state: &mut ImportState,
+    state_path: &Path,
+    name: &str,
+    target_id: &str,
+    resolved_ids: &[String],
+    unresolved: usize,
+    tracks_added: usize,
+    tracks_failed: usize,
+    status: PlaylistStatus,
+) {
+    state.upsert(
+        name,
+        PlaylistState {
+            status,
+            target_id: Some(target_id.to_string()),
+            resolved_track_ids: resolved_ids.to_vec(),
+            unresolved_count: unresolved,
+            tracks_added,
+            tracks_failed,
+        },
+    );
+    let _ = import_state::save(state, state_path);
+}
+
+fn tally_terminal(report: &mut ImportReport, prior: &PlaylistState) {
+    match prior.status {
+        PlaylistStatus::Completed => {
+            report.playlists_created += 1;
+            report.tracks_added += prior.tracks_added;
+            report.tracks_unresolved += prior.unresolved_count;
+            report.tracks_failed += prior.tracks_failed;
+        }
+        PlaylistStatus::SkippedDuplicate => {
+            report.playlists_skipped_duplicate += 1;
+        }
+        PlaylistStatus::FailedCreate => {
+            report.playlists_failed += 1;
+        }
+        PlaylistStatus::InProgress => {}
+    }
+}
+
+fn terminal_label(status: PlaylistStatus) -> &'static str {
+    match status {
+        PlaylistStatus::Completed => "completed",
+        PlaylistStatus::SkippedDuplicate => "skipped (duplicate)",
+        PlaylistStatus::FailedCreate => "failed to create",
+        PlaylistStatus::InProgress => "in progress",
+    }
+}
+
+/// True iff a `ZadError` represents a rate-limit hit (HTTP 429 or
+/// Google-quota 403). We match by formatted text because
+/// `ZadError::RateLimited` is emitted both by zad's clients and by
+/// our own `precall_check` wrapper, but the wrapper goes through
+/// [`anyhow::Error`] in some paths — keeping the check at the string
+/// surface means both paths classify the same way.
+pub fn is_rate_limit_error(e: &zad::ZadError) -> bool {
+    matches!(e, zad::ZadError::RateLimited { .. })
+}
+
+/// True iff an `anyhow::Error` was produced from a rate-limit
+/// `ZadError`. We classify by message because the conversion through
+/// `map_zad` (and through `precall_check`'s `anyhow!("{e}")` wrap)
+/// erases the original variant.
+pub fn anyhow_is_rate_limited(err: &anyhow::Error) -> bool {
+    let s = format!("{err}");
+    s.contains("rate-limited this call")
+}
+
+/// Build a fatal `anyhow::Error` for an interrupted import: the
+/// stderr message tells the user how to resume, and the underlying
+/// `ZadError::RateLimited` is preserved as the cause so debug logs
+/// keep the full body.
+fn rate_limit_bail(
+    playlist_name: &str,
+    op: &str,
+    err: zad::ZadError,
+    state: ImportState,
+    state_path: &Path,
+    report: &ImportReport,
+) -> anyhow::Error {
+    let _ = import_state::save(&state, state_path);
+    let counts = state.counts();
+    output::warn(&format!(
+        "rate-limit hit during `{op}` on `{playlist_name}`: {err}"
+    ));
+    output::info(&format!(
+        "progress so far: {} playlists completed, {} skipped duplicate, {} in progress, \
+         {} failed; {} tracks added, {} unresolved, {} failed adds",
+        counts.completed,
+        counts.skipped_duplicate,
+        counts.in_progress,
+        counts.failed_create,
+        counts.tracks_added + report.tracks_added,
+        counts.tracks_unresolved + report.tracks_unresolved,
+        counts.tracks_failed + report.tracks_failed,
+    ));
+    output::hint(&format!(
+        "state saved to {} — re-run the same `spotifai import` command \
+         (optionally with `--wait`) to resume from this point. \
+         Pass `--no-resume` to ignore the saved state and start over.",
+        state_path.display()
+    ));
+    anyhow::Error::msg(format!("{err}")).context(format!(
+        "import interrupted by rate limit during `{op}` on `{playlist_name}`"
+    ))
+}
 
 /// Read the envelope text from `--input PATH` or stdin.
 fn read_input(path: Option<&Path>) -> Result<String> {
