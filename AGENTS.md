@@ -52,17 +52,22 @@ Both upstream tools are consumed as **Rust libraries** via crates.io:
   server). Use the in-process API directly — do not shell out.
 
 - **zad** ([niclaslindstedt/zad](https://github.com/niclaslindstedt/zad)) —
-  the [`zad`](https://crates.io/crates/zad) crate (≥ 0.8.0). Spotifai uses
+  the [`zad`](https://crates.io/crates/zad) crate (≥ 0.9.0). Spotifai uses
   `zad::service::spotify::Spotify` and `zad::service::ymusic::Ymusic`
   (typed facades), `zad::service::spotify::SpotifyHttp` /
   `zad::service::ymusic::YmusicHttp` (raw HTTP for verbs the facade does
   not yet expose), `zad::oauth::run_loopback_flow` (in-process OAuth),
   `zad::secrets::{store, load, account, Scope}` (OS keychain),
   `zad::permissions::{signing, trust}` (Ed25519 trust store), and
-  `zad::rate_limit` (cross-process 429 coordination — `precall_check`
-  is consulted before every zad call so sibling processes do not burn
-  quota during an active cooldown window). All spotifai-side helpers
-  are bundled in [`src/zad_client.rs`](src/zad_client.rs).
+  `zad::rate_limit` (cross-process rate-limit coordination —
+  `precall_check` is consulted before every zad call so sibling
+  processes do not burn quota during an active cooldown window).
+  Spotify's `HTTP 429` and YouTube Music's `HTTP 429` *or* `HTTP 403`
+  Google-quota responses are all funneled through the same on-disk
+  deadline file — zad 0.9.0's `zad::google_quota` classifier promotes
+  ymusic's `quotaExceeded` / `rateLimitExceeded` 403s into the same
+  `ZadError::RateLimited` shape as canonical 429s. All spotifai-side
+  helpers are bundled in [`src/zad_client.rs`](src/zad_client.rs).
   Bump zad's version in `Cargo.toml` like any other Rust dep.
 
 When bumping zad, run `cargo test` and exercise `spotifai auth`,
@@ -73,19 +78,30 @@ shapes shift between minor releases.
 ### Rate-limit coordination
 
 Spotify and YouTube Music enforce rolling-window rate limits per
-application. zad 0.8.0 records the deadline from any 429 response at
+application. zad records the deadline from any rate-limit response at
 `~/.zad/state/<service>/rate_limit.json` and exposes
 `zad::rate_limit::precall_check(service, wait)` so every caller —
 inside the current process and any sibling `spotifai api` shell — can
-gate its calls behind the shared deadline. `spotifai ask` and
-`spotifai playlist` set `SPOTIFAI_WAIT=1` so the sub-agent fan-out
-sleeps through cooldowns instead of retrying into a longer ban; the
-one-shot commands default to fail-fast. The plumbing lives in
-`src/zad_client.rs` (`precall_check`, `wait_mode_with_default`,
-`SPOTIFAI_WAIT_ENV`) and is invoked from `api.rs`, `export.rs`, and
-`import.rs` before every zad call. The system prompts under
-`prompts/ask/` and `prompts/playlist/` instruct sub-agents to respect
-429s and never pass `--no-wait`.
+gate its calls behind the shared deadline. Spotify writes the
+deadline on `HTTP 429`; ymusic writes it on `HTTP 429` *or* on
+`HTTP 403` with one of Google's quota reasons (`quotaExceeded`,
+`dailyLimitExceeded`, `rateLimitExceeded`, `userRateLimitExceeded`),
+which the YouTube Data API uses as its de-facto 429. Daily-quota
+deadlines (~midnight Pacific Time) are persisted faithfully so every
+sibling process fails fast, but a single `precall_check` sleep is
+capped at one hour — for ymusic daily quotas, `--wait` sleeps the
+cap and then surfaces a typed `RateLimited` error so the user can
+choose whether to keep waiting.
+
+`spotifai ask` and `spotifai playlist` set `SPOTIFAI_WAIT=1` so the
+sub-agent fan-out sleeps through cooldowns instead of retrying into
+a longer ban; the one-shot commands default to fail-fast. The
+plumbing lives in `src/zad_client.rs` (`precall_check`,
+`wait_mode_with_default`, `SPOTIFAI_WAIT_ENV`) and is invoked from
+`api.rs`, `export.rs`, and `import.rs` before every zad call. The
+system prompts under `prompts/ask/` and `prompts/playlist/` instruct
+sub-agents to respect rate-limit errors (both `429` and ymusic 403
+quota) and never pass `--no-wait`.
 
 ### Permissions files (`~/.spotifai/permissions/<provider>/<profile>.toml`)
 

@@ -36,7 +36,7 @@ The optional positional argument becomes the agent's first turn. With no argumen
 
 ## Rate-limit coordination
 
-`spotifai clean` sessions typically run a few read calls to enumerate candidates and then one or more batched destructive calls. Spotify (and YouTube Music) enforce rolling-window rate limits per application, and the recovery path for repeated 429s is a longer cooldown that affects every sibling at once. To prevent that, zad 0.8.0 records the deadline from any 429 response at `~/.zad/state/<service>/rate_limit.json` and `spotifai api` consults it before issuing each request. `spotifai clean` sets `SPOTIFAI_WAIT=1` on its own process so every child `spotifai api` call inherits "sleep through the cooldown" behaviour; siblings that would otherwise hammer the provider into a longer cooldown stay paused until the window expires. Pass `--no-wait` to opt out (the session and every sub-agent will then fail fast with a `RateLimited` error on the next API call inside an active window).
+`spotifai clean` sessions typically run a few read calls to enumerate candidates and then one or more batched destructive calls. Spotify (and YouTube Music) enforce rolling-window rate limits per application, and the recovery path for repeated hits is a longer cooldown that affects every sibling at once. To prevent that, zad records the deadline from any rate-limit response at `~/.zad/state/<service>/rate_limit.json` and `spotifai api` consults it before issuing each request — Spotify writes that deadline on `HTTP 429`, YouTube Music on `HTTP 429` *or* on `HTTP 403` with a Google quota body (zad 0.9.0 promotes the latter into the same `ZadError::RateLimited` shape). `spotifai clean` sets `SPOTIFAI_WAIT=1` on its own process so every child `spotifai api` call inherits "sleep through the cooldown" behaviour; siblings that would otherwise hammer the provider into a longer cooldown stay paused until the window expires. Pass `--no-wait` to opt out (the session and every sub-agent will then fail fast with a `RateLimited` error on the next API call inside an active window).
 
 ## Environment variables
 
@@ -44,7 +44,7 @@ The optional positional argument becomes the agent's first turn. With no argumen
 
 | Variable | Read / set | Description |
 |---|---|---|
-| `SPOTIFAI_WAIT` | read & set | When unset, defaults to `1` for `spotifai clean` so child shells sleep through any active 429 cooldown. `--wait` / `--no-wait` on the command line override the default. Whatever value is resolved is then exported so every sub-agent's `spotifai api` invocation inherits the same policy. |
+| `SPOTIFAI_WAIT` | read & set | When unset, defaults to `1` for `spotifai clean` so child shells sleep through any active rate-limit cooldown (Spotify 429, or ymusic 429 / Google-quota 403). `--wait` / `--no-wait` on the command line override the default. Whatever value is resolved is then exported so every sub-agent's `spotifai api` invocation inherits the same policy. |
 
 ## Permissions
 

@@ -56,7 +56,7 @@ Status messages (`== spotifai import (Spotify) ==`, per-playlist results, the fi
 | `--input PATH`, `-i PATH` | path | — | Read the envelope from this file. Without it, the envelope is read from stdin. |
 | `--dry-run` | bool | false | Preview the import without making any zad write calls. The duplicate-name pre-fetch and any cross-provider search calls still run because both are read-only and produce a more realistic preview. |
 
-The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `spotifai import` defaults to fail-fast (`--no-wait`); a cross-provider migration that resolves thousands of tracks may want `--wait` so an early 429 from the resolver doesn't abort the whole run.
+The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `spotifai import` defaults to fail-fast (`--no-wait`); a cross-provider migration that resolves thousands of tracks may want `--wait` so an early rate-limit hit (Spotify 429, or ymusic 429 / Google-quota 403) from the resolver doesn't abort the whole run.
 
 ## Environment variables
 
@@ -64,7 +64,7 @@ The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `
 |---|---|---|
 | `SPOTIFAI_PROVIDER` | set | Set to the active provider slug for the duration of the import so any spotifai helper that consults the variable resolves to the same provider. Not propagated outside the process. |
 | `SPOTIFAI_PROFILE`  | set | Set to `playlist` for the duration of the import so any spotifai helper that consults the variable resolves to the matching profile file. Not propagated outside the process. |
-| `SPOTIFAI_WAIT` | read | Same semantics as for `spotifai api`: `1` → sleep through an active 429 cooldown window before each zad call; `0` → fail fast. Defaults to fail-fast for a direct `spotifai import` invocation. The CLI `--wait` / `--no-wait` flags override the env var. |
+| `SPOTIFAI_WAIT` | read | Same semantics as for `spotifai api`: `1` → sleep through an active rate-limit cooldown window (Spotify 429, or ymusic 429 / Google-quota 403) before each zad call; `0` → fail fast. Defaults to fail-fast for a direct `spotifai import` invocation. The CLI `--wait` / `--no-wait` flags override the env var. |
 | `ZAD_PERMISSIONS_PATH` | set | Pinned to `~/.spotifai/permissions/<provider>/playlist.toml` for the duration of the import. zad's library-side trust check honours this variable as an explicit override that bypasses the cwd-derived project slug. |
 
 OAuth tokens are read from the OS keychain by zad on every call; no environment variable is consulted for credentials.

@@ -33,7 +33,7 @@ The optional positional argument becomes the agent's first turn — usually a br
 
 ## Rate-limit coordination
 
-The curator workflow fans out search work across many sub-agents that all shell into `spotifai api search …`. Spotify (and YouTube Music) enforce rolling-window rate limits per application, and repeated 429s escalate to a longer cooldown that affects every sibling at once. `spotifai playlist` sets `SPOTIFAI_WAIT=1` on its own process so every child `spotifai api` invocation consults zad 0.8.0's shared deadline file at `~/.zad/state/<service>/rate_limit.json` and sleeps through any active cooldown window. The system prompt tells sub-agents not to retry-storm on 429 and not to pass `--no-wait`, so a single misbehaving subagent cannot starve the rest of the fan-out. Pass `--no-wait` on the parent invocation to opt out — every sub-agent will then fail fast instead.
+The curator workflow fans out search work across many sub-agents that all shell into `spotifai api search …`. Spotify (and YouTube Music) enforce rolling-window rate limits per application, and repeated hits escalate to a longer cooldown that affects every sibling at once. `spotifai playlist` sets `SPOTIFAI_WAIT=1` on its own process so every child `spotifai api` invocation consults zad's shared deadline file at `~/.zad/state/<service>/rate_limit.json` and sleeps through any active cooldown window. Spotify writes that deadline on `HTTP 429`; YouTube Music writes it on `HTTP 429` *or* on `HTTP 403` with a Google quota body — zad 0.9.0 promotes those 403s into the same `ZadError::RateLimited` shape, so the curator's fan-out gate is one branch regardless of provider. The system prompt tells sub-agents not to retry-storm on rate-limit errors and not to pass `--no-wait`, so a single misbehaving subagent cannot starve the rest of the fan-out. Pass `--no-wait` on the parent invocation to opt out — every sub-agent will then fail fast instead.
 
 ## Environment variables
 
@@ -41,7 +41,7 @@ The curator workflow fans out search work across many sub-agents that all shell 
 
 | Variable | Read / set | Description |
 |---|---|---|
-| `SPOTIFAI_WAIT` | read & set | When unset, defaults to `1` for `spotifai playlist` so child shells (the curator's search-subagent fan-out) sleep through any active 429 cooldown instead of fanning more requests at the wall. `--wait` / `--no-wait` on the command line override the default. Whatever value is resolved is then exported so every sub-agent's `spotifai api` invocation inherits the same policy. |
+| `SPOTIFAI_WAIT` | read & set | When unset, defaults to `1` for `spotifai playlist` so child shells (the curator's search-subagent fan-out) sleep through any active rate-limit cooldown (Spotify 429, or ymusic 429 / Google-quota 403) instead of fanning more requests at the wall. `--wait` / `--no-wait` on the command line override the default. Whatever value is resolved is then exported so every sub-agent's `spotifai api` invocation inherits the same policy. |
 
 ## Permissions
 

@@ -69,11 +69,13 @@ pub fn run_agent(
     // built *after* the env is set — so the call is sound.
     //
     // `SPOTIFAI_WAIT` is set unconditionally so child `spotifai api`
-    // shells coordinate through zad 0.8.0's shared rate-limit
-    // deadline file. When sub-agents fan out and one trips a 429,
-    // every sibling that follows will read the deadline and sleep
-    // (with `wait = true`) or fail fast (with `--no-wait`) instead
-    // of hammering Spotify into a longer cooldown.
+    // shells coordinate through zad's shared rate-limit deadline file.
+    // When sub-agents fan out and one trips a rate limit (Spotify
+    // 429, or ymusic 429 / Google-quota 403 — zad 0.9.0 funnels both
+    // through the same `ZadError::RateLimited`), every sibling that
+    // follows will read the deadline and sleep (with `wait = true`)
+    // or fail fast (with `--no-wait`) instead of hammering the
+    // provider into a longer cooldown.
     unsafe {
         std::env::set_var(SPOTIFAI_PROVIDER_ENV, provider.as_str());
         std::env::set_var(SPOTIFAI_PROFILE_ENV, profile.as_str());

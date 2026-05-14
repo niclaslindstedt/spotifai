@@ -74,7 +74,7 @@ See [`docs/export_schema.md`](../docs/export_schema.md) for the authoritative re
 
 **Selection semantics.** When none of `--likes` / `--albums` / `--playlists` is passed, the export fetches every bucket (the backwards-compatible default). When any of the three is set, only the selected buckets are fetched; unselected buckets are emitted as empty arrays. This is intended for debugging one surface at a time (e.g. `spotifai export --playlists -o test.json` skips the liked-tracks and saved-albums roundtrips so a 0-playlist result is easy to isolate from rate-limit or scope issues).
 
-The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `spotifai export` defaults to fail-fast (`--no-wait`) so a user-driven export surfaces 429s immediately instead of stalling silently; pass `--wait` when running concurrently with `spotifai ask` / `spotifai playlist` to share their cooldown coordination.
+The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `spotifai export` defaults to fail-fast (`--no-wait`) so a user-driven export surfaces rate-limit errors (Spotify 429, or ymusic 429 / Google-quota 403) immediately instead of stalling silently; pass `--wait` when running concurrently with `spotifai ask` / `spotifai playlist` to share their cooldown coordination.
 
 ## Environment variables
 
@@ -82,7 +82,7 @@ The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) also apply. `
 |---|---|---|
 | `SPOTIFAI_PROVIDER` | set | Set to the active provider slug for the duration of the export so any spotifai helper that consults the variable resolves to the same provider the export is using. Not propagated outside the process. |
 | `SPOTIFAI_PROFILE` | set | Set to `ask` for the duration of the export so any spotifai helper that consults the variable resolves to the same profile file the export uses. Not propagated outside the process. |
-| `SPOTIFAI_WAIT` | read | Same semantics as for `spotifai api`: `1` → sleep through an active 429 cooldown window before each zad call; `0` → fail fast. Defaults to fail-fast for a direct `spotifai export` invocation. The CLI `--wait` / `--no-wait` flags override the env var. |
+| `SPOTIFAI_WAIT` | read | Same semantics as for `spotifai api`: `1` → sleep through an active rate-limit cooldown window (Spotify 429, or ymusic 429 / Google-quota 403) before each zad call; `0` → fail fast. Defaults to fail-fast for a direct `spotifai export` invocation. The CLI `--wait` / `--no-wait` flags override the env var. |
 | `ZAD_PERMISSIONS_PATH` | set | Pinned to `~/.spotifai/permissions/<provider>/ask.toml` for the duration of the export. zad's library-side trust check honours this variable as an explicit override that bypasses the cwd-derived project slug. |
 
 OAuth tokens are read from the OS keychain by zad on every call; no environment variable is consulted for credentials.
