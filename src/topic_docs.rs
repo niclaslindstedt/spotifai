@@ -24,6 +24,7 @@ pub static TOPICS: &[(&str, &str)] = &[
         "troubleshooting",
         include_str!("../docs/troubleshooting.md"),
     ),
+    ("logging", include_str!("../docs/logging.md")),
 ];
 
 /// Look up a topic doc by name.

@@ -4,14 +4,26 @@
 //! `init` is called from [`crate::cli::run`] with the value of the
 //! global `--debug` flag. Every event emitted by [`crate::output`] is
 //! routed here through `tracing`, so the file log captures the same
-//! user-facing messages the terminal sees plus any `debug` events that
-//! the terminal suppresses by default.
+//! user-facing messages the terminal sees plus any `debug` events
+//! that the terminal suppresses by default. See
+//! [`docs/logging.md`](../../docs/logging.md) for the full level /
+//! glyph / color / scope contract.
 //!
 //! The log file lives at the platform's state directory (Linux:
 //! `~/.local/state/spotifai/debug.log`, macOS: `~/Library/Application
 //! Support/spotifai/debug.log`, Windows: `%APPDATA%\spotifai\debug.log`).
 //! No rotation is performed — `truncate the file manually or set up
 //! logrotate` is the documented v1 stance per §19.2.
+//!
+//! Each event arrives with two structured fields attached by the
+//! [`crate::output`] helpers:
+//!
+//! - `kind` — the helper that produced the event (`"action"`,
+//!   `"status"`, `"warn"`, …). Used by `grep 'kind="warn"'`-style
+//!   log post-processing.
+//! - `scope` — the joined active [`crate::output::scope`] stack at
+//!   emit time (e.g. `"export.playlists"`). Empty for top-level
+//!   events.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;

@@ -23,8 +23,6 @@
 //! [`crate::providers`] — the CLI surface picks it up automatically
 //! through clap's [`clap::ValueEnum`] derive on [`ProviderArg`].
 
-use std::io::Write as _;
-
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -395,8 +393,10 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
     if let Err(e) = logging::init(cli.debug) {
         // Don't fail the command just because the log file is
-        // unreachable — surface it once on stderr and continue.
-        let _ = writeln!(std::io::stderr(), "warning: logging disabled: {e:#}");
+        // unreachable — surface it once on stderr and continue. The
+        // output module itself is still usable because every helper
+        // double-writes to stderr regardless of the subscriber state.
+        output::warn(&format!("logging disabled: {e:#}"));
     }
     // §12.1 / §12.2 — agent-prompt-injectable surfaces. Honored
     // anywhere on the command line (they're `global = true`),
@@ -517,63 +517,64 @@ pub fn resolve_wait_flag(wait_cli: bool, no_wait_cli: bool, default_wait: bool) 
 /// permission profile (per provider), sign each one. Each step
 /// prints a header so a first-time user can see what is happening.
 fn guided_install() -> Result<()> {
-    output::header("spotifai setup");
+    let _setup = output::section("spotifai setup", "install");
 
-    output::header("Step 1/3 · Bootstrapping signing key");
-    match install::bootstrap_signing_key()? {
-        Some(fp) => output::status(&format!("signing key ready (fingerprint: {fp})")),
-        None => output::status("signing key ready"),
-    }
-
-    output::header("Step 2/3 · Writing default permission profiles");
-    let mut paths: Vec<(Provider, Profile, std::path::PathBuf)> =
-        Vec::with_capacity(Provider::ALL.len() * Profile::ALL.len());
-    for &provider in Provider::ALL {
-        for &profile in Profile::ALL {
-            let (path, wrote) = permissions::ensure_default_for(provider, profile)?;
-            if wrote {
-                output::status(&format!(
-                    "wrote default {} × {} permissions to {}",
-                    provider.as_str(),
-                    profile.as_str(),
-                    path.display()
-                ));
-            } else {
-                output::info(&format!(
-                    "{} × {} permissions already present at {}",
-                    provider.as_str(),
-                    profile.as_str(),
-                    path.display()
-                ));
-            }
-            paths.push((provider, profile, path));
+    output::step(1, 3, "bootstrapping signing key");
+    {
+        let _scope = output::scope("signing");
+        match install::bootstrap_signing_key()? {
+            Some(fp) => output::status(&format!("signing key ready (fingerprint: {fp})")),
+            None => output::status("signing key ready"),
         }
     }
 
-    output::header("Step 3/3 · Signing permission profiles");
-    for (provider, profile, path) in &paths {
-        install::sign_permissions_file(*provider, path)?;
-        output::status(&format!(
-            "signed {} × {} profile at {}",
-            provider.as_str(),
-            profile.as_str(),
-            path.display()
-        ));
+    output::step(2, 3, "writing default permission profiles");
+    let paths = {
+        let _scope = output::scope("permissions");
+        let mut paths: Vec<(Provider, Profile, std::path::PathBuf)> =
+            Vec::with_capacity(Provider::ALL.len() * Profile::ALL.len());
+        for &provider in Provider::ALL {
+            for &profile in Profile::ALL {
+                let (path, wrote) = permissions::ensure_default_for(provider, profile)?;
+                let label = format!("{} × {}", provider.as_str(), profile.as_str());
+                if wrote {
+                    output::status(&format!("wrote default {label} at {}", path.display()));
+                } else {
+                    output::detail(&format!("{label} already present at {}", path.display()));
+                }
+                paths.push((provider, profile, path));
+            }
+        }
+        paths
+    };
+
+    output::step(3, 3, "signing permission profiles");
+    {
+        let _scope = output::scope("sign");
+        for (provider, profile, path) in &paths {
+            install::sign_permissions_file(*provider, path)?;
+            output::status(&format!(
+                "signed {} × {} at {}",
+                provider.as_str(),
+                profile.as_str(),
+                path.display()
+            ));
+        }
     }
 
-    output::info("");
+    output::newline();
     output::info("You're set up. Next:");
-    output::info("  • Register Spotify credentials:        spotifai auth");
-    output::info("  • Or YouTube Music credentials:        spotifai auth --provider ymusic");
-    output::info("  • Try a read-only API call:            spotifai ask \"list my playlists\"");
-    output::info(
-        "  • Build a new Spotify playlist:        spotifai playlist \"a 30-min chill playlist\"",
+    output::detail("Register Spotify credentials:        spotifai auth");
+    output::detail("Or YouTube Music credentials:        spotifai auth --provider ymusic");
+    output::detail("Try a read-only API call:            spotifai ask \"list my playlists\"");
+    output::detail(
+        "Build a new Spotify playlist:        spotifai playlist \"a 30-min chill playlist\"",
     );
-    output::info(
-        "  • Build a new YouTube Music playlist:  spotifai playlist --provider ymusic \"a 30-min chill playlist\"",
+    output::detail(
+        "Build a YouTube Music playlist:      spotifai playlist --provider ymusic \"a 30-min chill playlist\"",
     );
-    output::info(
-        "  • Clean up your library:               spotifai clean \"remove every saved album from before 2010\"",
+    output::detail(
+        "Clean up your library:               spotifai clean \"remove every saved album from before 2010\"",
     );
     Ok(())
 }
