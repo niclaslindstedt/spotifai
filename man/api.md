@@ -46,12 +46,12 @@ The global `--wait` / `--no-wait` flags (see [`main.md`](main.md)) apply when pl
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--limit / -l <N>` | integer 1–50 | `50` | How many tracks of the playlist to fetch. |
+| `--limit / -l <N>` | positive integer | (omit) | How many tracks of the playlist to fetch. **Omit `--limit` to fetch every track in the playlist** — zad walks the upstream cursor under the hood past Spotify and YouTube Music's per-page maximum of 50. Pass `--limit N` to cap. |
 | `--fields / -f <list>` | comma-separated, repeatable | (all) | Project each track down to just the named fields. Same aliases as `search` — `title`, `artist`, `album`, `id`, `uri`, `duration`. For Spotify the projector transparently unwraps the `{item: <track>, added_at: ...}` envelope each playlist-track is wrapped in; for YouTube Music it resolves `id` to the underlying `contentDetails.videoId` rather than the playlist-item record id. |
 | `--format <json\|text>` | enum | `json` | `json` keeps the existing pretty-printed envelope; `text` emits one track per line with the requested fields tab-separated in the order given. `--format text` requires `--fields`. |
 | `--json` / `--pretty` | flag | — | Legacy no-ops that select JSON output. Prefer `--format json`. |
 
-Other verbs (`playlists list/create/add`, `library …`) accept `--limit`, `--json`, and `--pretty` only.
+Other list-style verbs (`playlists list`, `library tracks list`, `library albums list`, `library list` on YouTube Music) follow the same `--limit` rule: **omit it to fetch everything; pass `--limit N` to cap**. They additionally accept `--json` and `--pretty` (legacy no-ops). `playlists create` / `playlists add` do not take `--limit`.
 
 ## Environment variables
 
