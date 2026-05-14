@@ -38,12 +38,14 @@ pub const SPOTIFAI_PROVIDER_ENV: &str = "SPOTIFAI_PROVIDER";
 
 /// Run the typed dispatcher against the active provider/profile.
 ///
-/// `wait` controls how a still-active 429 cooldown (persisted by zad
-/// 0.8.0 in `~/.zad/state/<service>/rate_limit.json`) is treated:
-/// `true` sleeps until the deadline, `false` fails fast. The flag is
-/// usually inherited from the [`crate::zad_client::SPOTIFAI_WAIT_ENV`]
-/// env var so that sub-agents spawned by `spotifai ask` /
-/// `spotifai playlist` coordinate automatically with their siblings.
+/// `wait` controls how a still-active rate-limit cooldown (persisted
+/// by zad in `~/.zad/state/<service>/rate_limit.json` from a
+/// Spotify `HTTP 429` or a YouTube Music `HTTP 429` / `HTTP 403`
+/// Google-quota response) is treated: `true` sleeps until the
+/// deadline, `false` fails fast. The flag is usually inherited from
+/// the [`crate::zad_client::SPOTIFAI_WAIT_ENV`] env var so that
+/// sub-agents spawned by `spotifai ask` / `spotifai playlist`
+/// coordinate automatically with their siblings.
 pub fn forward(user_args: &[String], wait: bool) -> Result<()> {
     let provider = active_provider()?;
     let profile = active_profile()?;
@@ -511,7 +513,8 @@ async fn dispatch(
     // One pre-call gate per `spotifai api` invocation is enough — each
     // verb is a single zad operation (or a tight pair of calls on the
     // typed-facade-plus-raw-HTTP path). Sibling processes that just
-    // got 429'd will have written the deadline, and zag's sub-agent
+    // tripped a rate limit (Spotify 429, or ymusic 429 / Google-quota
+    // 403) will have written the shared deadline, and zag's sub-agent
     // tree retries this `spotifai api` shell call sequentially.
     zad_client::precall_check(provider, wait).await?;
     let mut value = match provider {

@@ -19,7 +19,7 @@ use crate::providers::Provider;
 use crate::session;
 
 /// Raw `prompts/clean/<version>.md` file baked in at compile time.
-pub const CLEAN_PROMPT_RAW: &str = include_str!("../prompts/clean/1_0_0.md");
+pub const CLEAN_PROMPT_RAW: &str = include_str!("../prompts/clean/1_0_1.md");
 
 /// Run the `clean` command. `initial_prompt` is the user's first
 /// instruction (the trailing positional arg from the CLI). `None`

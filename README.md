@@ -160,9 +160,10 @@ Commands:
 Options:
       --provider <slug>   Backing provider for the surface (spotify | ymusic).
                           Default: spotify. Available on auth/ask/playlist/clean/export/import.
-      --wait / --no-wait  Sleep through (or fail fast on) an active 429 cooldown
-                          window. Default: wait for ask/playlist/clean, fail-fast for
-                          api/export/import. SPOTIFAI_WAIT overrides the default.
+      --wait / --no-wait  Sleep through (or fail fast on) an active rate-limit
+                          cooldown window (Spotify HTTP 429, or ymusic HTTP 429 /
+                          Google-quota HTTP 403). Default: wait for ask/playlist/clean,
+                          fail-fast for api/export/import. SPOTIFAI_WAIT overrides the default.
       --yolo              Run the underlying zag agent with maximum permissions —
                           skip every per-tool approval prompt. Only meaningful
                           for ask/playlist/clean; the (provider, profile) policy

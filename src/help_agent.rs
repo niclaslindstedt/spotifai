@@ -49,7 +49,7 @@ pub fn print_help_agent() {
     );
     let _ = writeln!(
         out,
-        "  --wait | --no-wait      Sleep through (or fail fast on) an active 429 cooldown window recorded by zad 0.8.0 at ~/.zad/state/<service>/rate_limit.json. Default: wait for ask|playlist, fail-fast for one-shot commands. SPOTIFAI_WAIT overrides the default."
+        "  --wait | --no-wait      Sleep through (or fail fast on) an active rate-limit cooldown window recorded by zad at ~/.zad/state/<service>/rate_limit.json (Spotify HTTP 429, or ymusic HTTP 429 / Google-quota HTTP 403). Default: wait for ask|playlist, fail-fast for one-shot commands. SPOTIFAI_WAIT overrides the default."
     );
     let _ = writeln!(
         out,

@@ -38,10 +38,13 @@ use crate::providers::Provider;
 /// "respect the cooldown" behaviour automatically. Spotify enforces
 /// rolling-window rate limits per *application*, so multiple agents
 /// hammering the same client at once will trip 429s without this
-/// coordination. A single shared on-disk deadline (zad 0.8.0
-/// `~/.zad/state/<service>/rate_limit.json`) is what lets sibling
-/// processes coordinate; this flag governs how each one reacts when
-/// the deadline is in the future.
+/// coordination. YouTube Music expresses the same situation as a
+/// `HTTP 403` with a Google quota body (`quotaExceeded`,
+/// `rateLimitExceeded`, …); zad 0.9.0 promotes those 403s to the
+/// same on-disk deadline as 429s so the same gate applies. A single
+/// shared on-disk deadline (`~/.zad/state/<service>/rate_limit.json`)
+/// is what lets sibling processes coordinate; this flag governs how
+/// each one reacts when the deadline is in the future.
 pub const SPOTIFAI_WAIT_ENV: &str = "SPOTIFAI_WAIT";
 
 /// Resolve the active wait-mode from the CLI flag, the env var, and
@@ -88,12 +91,22 @@ pub fn rate_limit_service(provider: Provider) -> &'static str {
 
 /// Consult zad's shared rate-limit state before issuing a zad call.
 ///
-/// With `wait = true` and a still-active 429 deadline persisted by a
-/// sibling process, this sleeps until the deadline. With `wait =
-/// false` it returns an error wrapping [`zad::ZadError::RateLimited`]
-/// so the caller fails fast. With no recorded deadline it is a
-/// no-op regardless of `wait`. Always safe to call before every zad
+/// With `wait = true` and a still-active rate-limit deadline
+/// persisted by a sibling process, this sleeps until the deadline
+/// (capped at one hour per invocation — for the YouTube Music daily
+/// quota, which can be ~23h out, the call returns
+/// [`zad::ZadError::RateLimited`] after the capped sleep so the user
+/// can decide whether to keep waiting). With `wait = false` it
+/// returns an error wrapping [`zad::ZadError::RateLimited`] so the
+/// caller fails fast. With no recorded deadline it is a no-op
+/// regardless of `wait`. Always safe to call before every zad
 /// operation; the typical fast path is one disk stat.
+///
+/// The deadline file is written by the Spotify client on `HTTP 429`
+/// and by the YouTube Music client on either `HTTP 429` or `HTTP 403`
+/// with a Google quota body — see zad 0.9.0's
+/// [`zad::google_quota`](https://docs.rs/zad/0.9.0/zad/google_quota/index.html)
+/// for the 403 classification rules.
 pub async fn precall_check(provider: Provider, wait: bool) -> Result<()> {
     let service = rate_limit_service(provider);
     rate_limit::precall_check(service, wait)
