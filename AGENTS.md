@@ -52,21 +52,25 @@ Both upstream tools are consumed as **Rust libraries** via crates.io:
   server). Use the in-process API directly — do not shell out.
 
 - **zad** ([niclaslindstedt/zad](https://github.com/niclaslindstedt/zad)) —
-  the [`zad`](https://crates.io/crates/zad) crate (≥ 0.9.0). Spotifai uses
+  the [`zad`](https://crates.io/crates/zad) crate (≥ 0.9.1). Spotifai uses
   `zad::service::spotify::Spotify` and `zad::service::ymusic::Ymusic`
   (typed facades), `zad::service::spotify::SpotifyHttp` /
   `zad::service::ymusic::YmusicHttp` (raw HTTP for verbs the facade does
-  not yet expose), `zad::oauth::run_loopback_flow` (in-process OAuth),
+  not yet expose), `zad::oauth::run_loopback_flow` (Spotify PKCE
+  loopback) plus `zad::service::ymusic::oauth_device::run_device_flow`
+  (YouTube Music RFC 8628 device flow against Google's shared TVHTML5
+  client — no per-operator OAuth client to register),
   `zad::secrets::{store, load, account, Scope}` (OS keychain),
   `zad::permissions::{signing, trust}` (Ed25519 trust store), and
   `zad::rate_limit` (cross-process rate-limit coordination —
   `precall_check` is consulted before every zad call so sibling
-  processes do not burn quota during an active cooldown window).
-  Spotify's `HTTP 429` and YouTube Music's `HTTP 429` *or* `HTTP 403`
-  Google-quota responses are all funneled through the same on-disk
-  deadline file — zad 0.9.0's `zad::google_quota` classifier promotes
-  ymusic's `quotaExceeded` / `rateLimitExceeded` 403s into the same
-  `ZadError::RateLimited` shape as canonical 429s. All spotifai-side
+  processes do not burn through an active cooldown window).
+  ymusic runtime calls go to YouTube Music's internal **InnerTube**
+  endpoint at `music.youtube.com/youtubei/v1`, which is *not metered*
+  by the YouTube Data API daily quota; Spotify's `HTTP 429` and any
+  residual Google quota 403 are still funneled through the same
+  on-disk deadline file via `zad::google_quota`, kept in the codebase
+  as cheap insurance against future policy changes. All spotifai-side
   helpers are bundled in [`src/zad_client.rs`](src/zad_client.rs).
   Bump zad's version in `Cargo.toml` like any other Rust dep.
 

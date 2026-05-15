@@ -29,7 +29,7 @@ All three commands take `--provider <slug>` (default: `spotify`). Today the supp
 | Slug | Display name | Notes |
 |---|---|---|
 | `spotify` (default) | Spotify       | OAuth 2.0 PKCE, one developer app per user. |
-| `ymusic`            | YouTube Music | Google OAuth 2.0 Desktop-app credentials, talks to YouTube Data API v3. |
+| `ymusic`            | YouTube Music | Google OAuth 2.0 device flow against the shared TVHTML5 client — no developer app to create. Talks to YouTube Music's internal InnerTube backend, not the Data API. |
 
 ## Set up the local toolchain
 
@@ -60,11 +60,7 @@ Spotify hands out **one developer app per user**, so you do this once:
 
 ### YouTube Music
 
-YouTube Music has no dedicated public API; zad talks to YouTube Data API v3 with Google OAuth credentials.
-
-1. Go to [console.cloud.google.com](https://console.cloud.google.com/), create or pick a project, and enable **YouTube Data API v3** under "APIs & Services".
-2. Under **Credentials**, click **Create credentials → OAuth client ID** and pick **Desktop app**. Save the **Client ID** + **Client secret**.
-3. While the OAuth consent screen is in **Testing**, add yourself as a test user.
+YouTube Music has **no developer-app step**. zad's runtime client talks to the InnerTube backend at `music.youtube.com/youtubei/v1` (the same surface the web app uses) and authenticates via Google's OAuth 2.0 device flow against the shared TVHTML5 client. The TVHTML5 `client_id` / `client_secret` ship inside zad itself — there is nothing to register in Google Cloud Console. Skip ahead to "First run".
 
 ## First run
 
@@ -80,16 +76,17 @@ For YouTube Music:
 spotifai auth --provider ymusic
 ```
 
-After granting access, spotifai captures the redirect on a `127.0.0.1:<random-port>` loopback listener (Spotify uses HTTPS with a per-session self-signed cert; YouTube Music uses HTTP), exchanges the authorization code for a refresh token, and stores it in your OS keychain under the `zad` service. Spotifai also probes `/me` (Spotify) or `/userinfo` + `/channels?mine=true` (YouTube Music) to capture the authenticated user/channel id and writes it to `~/.spotifai/<provider>.toml` for `playlists create` to consume later.
+Spotify captures the redirect on a `127.0.0.1:<random-port>` HTTPS loopback listener (with a per-session self-signed cert), exchanges the authorization code for a refresh token, and stores it in your OS keychain under the `zad` service. YouTube Music prints a short URL and a 9-character user code, then polls Google until you approve — visit the URL on any browser (it does not have to be on this machine), sign in to the YouTube account whose library you want to use, and approve. Either way, spotifai then probes `/me` (Spotify) or `userinfo` + `my_channel` (YouTube Music) to capture the authenticated user/channel id and writes it to `~/.spotifai/<provider>.toml` for `playlists create` to consume later.
 
-If you'd rather skip the interactive prompt, pass the credentials up front:
+If you'd rather skip the interactive Spotify prompt, pass the client id up front:
 
 ```sh
 spotifai auth --client-id <your-client-id>
-spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
 ```
 
-`--no-browser` keeps the auth URL in stderr only (useful when the loopback listener is reachable from another machine over SSH port-forwarding).
+YouTube Music has no equivalent — there is no per-user OAuth client to supply.
+
+`--no-browser` keeps the Spotify auth URL in stderr only (useful when the loopback listener is reachable from another machine over SSH port-forwarding). The flag is a no-op for `ymusic` — the device-flow URL is always printed for the user to open manually.
 
 ## Your first query
 

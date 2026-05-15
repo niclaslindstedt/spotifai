@@ -1,22 +1,25 @@
 //! `spotifai auth` — register OAuth credentials in-process using
-//! zad's PKCE/loopback primitives, then write the resulting tokens
-//! into the OS keychain at the same accounts the zad library reads
+//! zad's auth primitives, then write the resulting tokens into the
+//! OS keychain at the same accounts the zad library reads
 //! (`spotify-client-id:global`, `spotify-refresh:global`,
-//! `ymusic-client-id:global`, `ymusic-client-secret:global`,
 //! `ymusic-refresh:global`).
 //!
 //! Spotify uses Spotify's OAuth 2.0 authorization-code flow with
-//! PKCE — a public client, no `client_secret`. YouTube Music uses
-//! Google's OAuth 2.0 "Desktop app" flow which still issues a
-//! confidential `client_secret`. Either way the redirect lands on a
-//! `127.0.0.1` loopback listener spotifai opens for the duration of
-//! the flow; Spotify additionally requires `https://` so the listener
-//! terminates TLS in-process with a fresh self-signed certificate per
-//! flow.
+//! PKCE — a public client, no `client_secret`; the redirect lands
+//! on an `https://127.0.0.1` loopback listener spotifai opens for
+//! the duration of the flow and terminates TLS in-process with a
+//! self-signed certificate.
+//!
+//! YouTube Music uses Google's **OAuth 2.0 device flow** (RFC 8628)
+//! against the shared TVHTML5 client. There is no per-user
+//! `client_id` / `client_secret` to register — the TVHTML5 pair is
+//! compiled into zad. spotifai prints a short URL and a 9-character
+//! code, then polls Google until the user finishes approval on any
+//! browser.
 //!
 //! On success spotifai also probes the provider's "self" endpoint
-//! (`GET /me` for Spotify, `GET /userinfo` + `GET /channels?mine=true`
-//! for YouTube Music) and persists the authenticated identity to
+//! (`GET /me` for Spotify, `GET /userinfo` + `my_channel` for
+//! YouTube Music) and persists the authenticated identity to
 //! `~/.spotifai/<provider>.toml`. `create_playlist` reads it back
 //! later so the agent surface does not have to re-fetch the user id
 //! on every call.
@@ -32,7 +35,8 @@ use zad::oauth::{
 };
 use zad::secrets::{self, Scope};
 use zad::service::spotify::{self as zad_spotify, SpotifyHttp};
-use zad::service::ymusic::{self as zad_ymusic, YmusicHttp};
+use zad::service::ymusic::YmusicHttp;
+use zad::service::ymusic::oauth_device::{DeviceFlowConfig, run_device_flow};
 
 use crate::output;
 use crate::providers::Provider;
@@ -230,70 +234,40 @@ async fn run_spotify(opts: AuthOptions) -> Result<()> {
 }
 
 async fn run_ymusic(opts: AuthOptions) -> Result<()> {
-    if opts.client_id.is_none() || opts.client_secret.is_none() {
-        print_ymusic_setup_hint();
+    if opts.client_id.is_some() || opts.client_secret.is_some() {
+        output::warn(
+            "--client-id / --client-secret are ignored for YouTube Music — \
+             zad authenticates via OAuth 2.0 device flow against Google's \
+             shared TVHTML5 client, whose credentials ship with the binary.",
+        );
     }
-    let client_id = match opts.client_id {
-        Some(s) => s,
-        None => output::prompt("YouTube Music (Google OAuth) client_id")?,
-    };
-    let client_secret = match opts.client_secret {
-        Some(s) => s,
-        None => output::prompt("YouTube Music (Google OAuth) client_secret")?,
-    };
+    print_ymusic_setup_hint();
 
-    let zad_scopes = full_zad_scopes();
-    let scopes = zad_ymusic::youtube_scopes_for(&zad_scopes);
-
-    let cfg = LoopbackConfig {
-        service_name: "ymusic",
-        display_name: "YouTube Music",
-        auth_url: zad_ymusic::AUTH_URL.into(),
-        token_url: zad_ymusic::TOKEN_URL.into(),
-        client_id: client_id.clone(),
-        client_secret: Some(client_secret.clone()),
-        scopes,
-        // `access_type=offline` + `prompt=consent` together force
-        // Google to mint a fresh refresh_token even if the user has
-        // already granted the scopes for this client.
-        extra_auth_params: vec![
-            ("access_type".into(), "offline".into()),
-            ("prompt".into(), "consent".into()),
-            ("include_granted_scopes".into(), "true".into()),
-        ],
-        timeout: Duration::from_secs(120),
-        redirect_scheme: RedirectScheme::Http,
-    };
-    output::action("running OAuth loopback flow (Google Desktop)");
-    output::detail(&format!("requested scopes: {}", cfg.scopes.join(" ")));
-    let tokens = run_loopback_flow(&cfg, opts.open_browser)
-        .await
-        .map_err(|e| anyhow!("YouTube Music OAuth failed: {e}"))?;
+    let cfg = DeviceFlowConfig::default();
+    output::action("running OAuth device flow (Google TVHTML5)");
+    let _ = opts.open_browser; // device flow shows a URL; opening is per-OS and left to the user
+    let tokens = run_device_flow(&cfg, |code| {
+        output::newline();
+        output::detail(&format!("Visit:  {}", code.verification_url));
+        output::detail(&format!("Enter:  {}", code.user_code));
+        output::detail(&format!(
+            "Waiting up to {}s for approval (polling every {}s)…",
+            code.expires_in, code.interval
+        ));
+    })
+    .await
+    .map_err(|e| anyhow!("YouTube Music device flow failed: {e}"))?;
     let refresh = require_refresh(&tokens, "YouTube Music")?;
     if let Some(scope) = tokens.scope.as_deref() {
         output::detail(&format!("granted scopes: {scope}"));
         warn_if_youtube_scope_missing(scope);
-    } else {
-        output::warn(
-            "Google did not return the `scope` field in the token response. \
-             If `spotifai import` or `playlist` later report \
-             ACCESS_TOKEN_SCOPE_INSUFFICIENT, re-run `spotifai auth --provider ymusic` \
-             and tick *all* checkboxes on Google's consent screen — under \
-             \"granular permissions\" the YouTube box is separate from the \
-             basic-profile box.",
-        );
     }
 
-    secrets::store(
-        &secrets::account("ymusic", "client-id", Scope::Global),
-        &client_id,
-    )
-    .map_err(|e| anyhow!("storing YouTube Music client-id in keychain failed: {e}"))?;
-    secrets::store(
-        &secrets::account("ymusic", "client-secret", Scope::Global),
-        &client_secret,
-    )
-    .map_err(|e| anyhow!("storing YouTube Music client-secret in keychain failed: {e}"))?;
+    // The TVHTML5 client constants live in zad; the only per-user
+    // ymusic secret is the refresh token. Best-effort delete on the
+    // unused slots keeps the keychain free of stale values.
+    let _ = secrets::delete(&secrets::account("ymusic", "client-id", Scope::Global));
+    let _ = secrets::delete(&secrets::account("ymusic", "client-secret", Scope::Global));
     secrets::store(
         &secrets::account("ymusic", "refresh", Scope::Global),
         &refresh,
@@ -303,13 +277,12 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
     output::status("credentials written to OS keychain");
 
     // Capture the channel id and email via userinfo + my_channel.
-    // Google rarely rotates refresh tokens but the probe's `access_token`
-    // path persists rotations only if a store is wired up — match the
-    // Spotify branch so the keychain stays consistent if Google ever
-    // does rotate.
+    // Google rarely rotates refresh tokens but the probe's
+    // `access_token` path persists rotations only if a store is
+    // wired up — match the Spotify branch.
     let probe = YmusicHttp::with_store(
-        client_id,
-        client_secret,
+        String::new(),
+        String::new(),
         refresh,
         BTreeSet::new(),
         PathBuf::new(),
@@ -428,23 +401,18 @@ fn print_spotify_setup_hint() {
     output::newline();
 }
 
-/// First-time setup hint shown before prompting for YouTube Music
-/// (Google OAuth) credentials. Links go straight to the API library
-/// and credentials pages so the user does not have to navigate the
-/// Google Cloud console themselves.
+/// First-time setup hint shown before launching the YouTube Music
+/// device-flow handshake. There is no per-user OAuth client to
+/// register — zad ships the shared TVHTML5 credentials — so this
+/// is a brief explanation rather than the multi-step Google Cloud
+/// walk-through the Data API flow used to require.
 fn print_ymusic_setup_hint() {
     output::newline();
-    output::hint("First-time setup — you need Google OAuth credentials with the YouTube Data API:");
-    output::detail("1. Enable the API:");
-    output::detail("   https://console.cloud.google.com/apis/library/youtube.googleapis.com");
-    output::detail("2. Create an OAuth client:");
-    output::detail("   https://console.cloud.google.com/apis/credentials");
-    output::detail(
-        "   → \"Create credentials\" → \"OAuth client ID\" → application type \"Desktop app\"",
-    );
-    output::detail("3. While the consent screen is in Testing, add yourself as a test user:");
-    output::detail("   https://console.cloud.google.com/apis/credentials/consent");
-    output::detail("4. Copy the \"Client ID\" and \"Client secret\" from the new credential");
+    output::hint("YouTube Music uses Google's OAuth 2.0 device flow.");
+    output::detail("1. spotifai prints a short URL and a 9-character code.");
+    output::detail("2. Visit the URL in any browser (it does not have to be on this machine).");
+    output::detail("3. Sign in to the YouTube account whose library you want to use.");
+    output::detail("4. Type the code, approve, and come back here.");
     output::newline();
 }
 

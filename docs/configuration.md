@@ -40,7 +40,7 @@ zad ≥ 0.4.0 fails closed on any permissions file referenced by `ZAD_PERMISSION
 Provider credentials are managed by zad, not spotifai. Run [`spotifai auth`](../man/auth.md) to register them; the command forwards to `zad service create <provider>` at zad's **global** scope (no `--local`). The resulting config lives at `~/.zad/services/<provider>/config.toml` and applies to every directory `spotifai api …` is invoked from.
 
 - **Spotify** uses an OAuth 2.0 PKCE *public-client* flow, so there is no `client_secret` and no fixed redirect-URI port: the loopback listener picks a random port on `127.0.0.1` at runtime. Just register the host `http://127.0.0.1` in your Spotify dashboard once.
-- **YouTube Music** (zad ≥ 0.6.0) uses OAuth 2.0 *Desktop-app* credentials issued by Google Cloud (`client_id` + `client_secret`), against the YouTube Data API v3.
+- **YouTube Music** uses Google's OAuth 2.0 **device flow** (RFC 8628) against the shared TVHTML5 client — there is *no* developer app to register, and no `client_id` / `client_secret` to manage. The keychain holds only `ymusic-refresh:global`. Runtime calls go to YouTube Music's internal InnerTube backend at `music.youtube.com/youtubei/v1`, which is not metered by the YouTube Data API daily quota.
 
 ## zad permissions path
 
@@ -73,15 +73,18 @@ zad records the deadline from any rate-limit response at
 `~/.zad/state/<service>/rate_limit.json` and exposes a precall check so
 every caller — inside the current process and any sibling `spotifai api`
 shell — can gate its calls behind the shared deadline. Spotify writes
-the deadline on `HTTP 429`; YouTube Music writes it on `HTTP 429` *or*
-on `HTTP 403` with a Google quota body (`quotaExceeded`,
-`dailyLimitExceeded`, `rateLimitExceeded`, `userRateLimitExceeded`) —
-zad 0.9.0's `google_quota` classifier promotes those 403s into the
-same `ZadError::RateLimited` shape. Daily-quota deadlines (resetting
-at midnight Pacific Time, up to ~25 hours) are persisted faithfully,
-but a single `--wait` invocation sleeps at most one hour and then
-surfaces `RateLimited` again so the user can decide whether to
-re-run.
+the deadline on `HTTP 429`. YouTube Music's InnerTube backend has much
+looser rolling limits than the old Data API daily quota, so the
+ymusic rate-limit path is now rare in practice — `HTTP 429` is still
+honoured the same way, and zad's `google_quota` classifier still
+promotes any residual `HTTP 403` with a Google quota body
+(`quotaExceeded`, `dailyLimitExceeded`, `rateLimitExceeded`,
+`userRateLimitExceeded`) into the same `ZadError::RateLimited` shape
+as cheap insurance against future policy changes. Daily-quota
+deadlines (resetting at midnight Pacific Time, up to ~25 hours) are
+persisted faithfully, but a single `--wait` invocation sleeps at
+most one hour and then surfaces `RateLimited` again so the user can
+decide whether to re-run.
 
 | Knob | Type | Default | Description |
 |------|------|---------|-------------|

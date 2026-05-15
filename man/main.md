@@ -24,7 +24,7 @@ Adding another provider is a single change in `src/providers.rs` and is picked u
 | Command | Description |
 |---|---|
 | `install`  | Walk the three-step setup that makes the agent surfaces usable: bootstrap the local Ed25519 signing key in the OS keychain, scaffold every per-`(provider, profile)` file under `~/.spotifai/permissions/<provider>/`, and sign each one so zad's load-time trust check passes. Idempotent. |
-| `auth`     | Run an in-process OAuth loopback flow for the chosen provider and write the resulting tokens into the OS keychain. Spotify uses PKCE (no client secret); YouTube Music uses Google OAuth 2.0 Desktop-app credentials. |
+| `auth`     | Run an in-process OAuth flow for the chosen provider and write the resulting tokens into the OS keychain. Spotify uses a PKCE loopback (no client secret); YouTube Music uses Google's OAuth 2.0 **device flow** against the shared TVHTML5 client — no per-user OAuth client to register. |
 | `api`      | Dispatch a typed call into the in-process zad library and print the JSON response. Requires the active profile (set by `ask`, `playlist`, `clean`, `export`, or `import`); direct shell invocations error out. The matching `~/.spotifai/permissions/<provider>/<profile>.toml` is consulted via `ZAD_PERMISSIONS_PATH`. |
 | `ask`      | Read-only zag session about the user's library on the active provider, with `~/.spotifai/permissions/<provider>/ask.toml` injected into the system prompt. |
 | `playlist` | zag session that builds one new playlist for the user on the active provider, with `~/.spotifai/permissions/<provider>/playlist.toml` injected. Adds `playlists create`, `playlists add`, and `playlists rename`; destructive verbs stay denied. |
@@ -48,14 +48,14 @@ Walks a three-step guided setup. Each step prints a header so a first-time user 
 
 ### `spotifai auth`
 
-Runs an in-process OAuth loopback flow for the active provider via `zad::oauth::run_loopback_flow` and writes the resulting tokens into the OS keychain under the `zad` service. Spotify uses an OAuth 2.0 PKCE public-client flow (no `client_secret`) and terminates a per-session HTTPS loopback listener with a self-signed certificate. YouTube Music (zad ≥ 0.6.0) uses a Google OAuth 2.0 Desktop-app flow (HTTP loopback, with a `client_secret`). After the flow, spotifai probes the provider's "self" endpoint and persists the captured user/channel id at `~/.spotifai/<provider>.toml` so `playlists create` can reuse it. See [`auth.md`](auth.md) for the full reference.
+Runs an in-process OAuth flow for the active provider and writes the resulting tokens into the OS keychain under the `zad` service. Spotify uses an OAuth 2.0 PKCE public-client flow (no `client_secret`) via `zad::oauth::run_loopback_flow` and terminates a per-session HTTPS loopback listener with a self-signed certificate. YouTube Music uses Google's OAuth 2.0 **device flow** (RFC 8628) against the shared TVHTML5 client via `zad::service::ymusic::oauth_device::run_device_flow` — spotifai prints a short URL and a 9-character code; you approve in any browser. After the flow, spotifai probes the provider's "self" endpoint and persists the captured user/channel id at `~/.spotifai/<provider>.toml` so `playlists create` can reuse it. See [`auth.md`](auth.md) for the full reference.
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--provider <slug>` | enum | `spotify` | Which provider to register credentials for. One of `spotify`, `ymusic`. |
-| `--client-id <id>` | string | — | Skip the interactive prompt for the OAuth client id. |
-| `--client-secret <secret>` | string | — | Required for `ymusic`; rejected for Spotify (PKCE has no secret). |
-| `--no-browser` | bool | false | Don't auto-open the consent screen; print the URL on stderr only. |
+| `--client-id <id>` | string | — | Spotify only — pre-fill the OAuth client id and skip the interactive prompt. Ignored on `ymusic` (the TVHTML5 client is fixed). |
+| `--client-secret <secret>` | string | — | Rejected for Spotify (PKCE has no secret); ignored on `ymusic` (the TVHTML5 client is fixed). Retained for source-compat with older command lines. |
+| `--no-browser` | bool | false | Spotify: don't auto-open the consent screen; print the URL on stderr only. YouTube Music: no-op — the device-flow URL is always printed for the user to open manually. |
 
 ### `spotifai api`
 
@@ -214,7 +214,7 @@ spotifai playlist --provider ymusic "an upbeat 45-minute commute playlist"
 spotifai clean "remove all baby songs — my child is 15 now"
 spotifai export --provider ymusic --pretty -o ~/backups/ymusic.json
 spotifai export --provider spotify | spotifai import --provider ymusic --dry-run
-spotifai auth --provider ymusic --client-id <id> --client-secret <secret>
+spotifai auth --provider ymusic    # prints a code + URL; approve in any browser
 ```
 
 ## See also

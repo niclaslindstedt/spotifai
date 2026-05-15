@@ -40,20 +40,27 @@ pub struct PlaylistState {
     /// successful `create_playlist`. None for `SkippedDuplicate`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_id: Option<String>,
-    /// Resolved track / video ids in the order they should be added
-    /// to the target playlist. Captured during the resolution pass
-    /// so a resumed run does not re-issue search calls (which both
-    /// burn quota and may pick a different first hit on a different
-    /// day).
+    /// Resolved track / video ids in source order, with unresolved
+    /// tracks skipped. Captured incrementally as each track is
+    /// processed so a resumed run does not re-issue search calls
+    /// (which both burn quota and may pick a different first hit on
+    /// a different day). Length is always `tracks_added +
+    /// tracks_failed` once `tracks_processed == playlist.tracks.len()`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resolved_track_ids: Vec<String>,
+    /// Cursor into the source playlist's track list. The next
+    /// resumed run skips this many source tracks before resuming the
+    /// resolve+insert loop. Distinct from `tracks_added` because not
+    /// every processed source track resolves, and not every resolved
+    /// track inserts successfully.
+    #[serde(default)]
+    pub tracks_processed: usize,
     /// Number of source tracks the resolver could not find on the
     /// target. Surfaced in the final summary; not retried on resume.
     #[serde(default)]
     pub unresolved_count: usize,
     /// Number of items from `resolved_track_ids` that have been
-    /// successfully added to the target playlist. Resume picks up
-    /// from this index.
+    /// successfully added to the target playlist.
     #[serde(default)]
     pub tracks_added: usize,
     /// Number of items from `resolved_track_ids` whose add call
@@ -89,6 +96,7 @@ impl PlaylistState {
             status: PlaylistStatus::SkippedDuplicate,
             target_id: None,
             resolved_track_ids: Vec::new(),
+            tracks_processed: 0,
             unresolved_count: 0,
             tracks_added: 0,
             tracks_failed: 0,
@@ -100,6 +108,7 @@ impl PlaylistState {
             status: PlaylistStatus::FailedCreate,
             target_id: None,
             resolved_track_ids: Vec::new(),
+            tracks_processed: 0,
             unresolved_count: 0,
             tracks_added: 0,
             tracks_failed: 0,
