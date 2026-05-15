@@ -784,9 +784,7 @@ async fn run_ymusic(
                 tracks_failed,
                 PlaylistStatus::InProgress,
             );
-            return Err(rate_limit_bail(
-                &name, op, err, state, state_path, &report,
-            ));
+            return Err(rate_limit_bail(&name, op, err, state, state_path, &report));
         }
 
         persist_progress(
