@@ -269,6 +269,7 @@ async fn run_spotify(
                                 status: PlaylistStatus::InProgress,
                                 target_id: Some(p.id.clone()),
                                 resolved_track_ids: resolved_ids.clone(),
+                                tracks_processed: 0,
                                 unresolved_count: unresolved,
                                 tracks_added: 0,
                                 tracks_failed: 0,
@@ -311,7 +312,12 @@ async fn run_spotify(
             ));
         }
 
-        // Spotify caps `add_playlist_tracks` at 100 URIs per call.
+        // Spotify caps `add_playlist_tracks` at 100 URIs per call, so
+        // we keep the batched insert here even though ymusic interleaves
+        // resolve+insert per track. Resolution already ran above, so
+        // every source track is either in `resolved_ids` or counted as
+        // unresolved — set `tracks_processed` to the full source length.
+        let tracks_processed_total = playlist.tracks.len();
         let mut added_now = 0usize;
         let mut failed_now = 0usize;
         let mut hit_rate_limit: Option<zad::ZadError> = None;
@@ -327,6 +333,7 @@ async fn run_spotify(
                         &name,
                         &target_id,
                         &resolved_ids,
+                        tracks_processed_total,
                         unresolved,
                         already_added + added_now,
                         prior_failed + failed_now,
@@ -354,6 +361,7 @@ async fn run_spotify(
                 &name,
                 &target_id,
                 &resolved_ids,
+                tracks_processed_total,
                 unresolved,
                 total_added,
                 total_failed,
@@ -377,6 +385,7 @@ async fn run_spotify(
             &name,
             &target_id,
             &resolved_ids,
+            tracks_processed_total,
             unresolved,
             total_added,
             total_failed,
@@ -404,7 +413,8 @@ async fn resolve_spotify_tracks(
 
     let mut ids: Vec<String> = Vec::with_capacity(playlist.tracks.len());
     let mut unresolved = 0usize;
-    for track in &playlist.tracks {
+    let total = playlist.tracks.len();
+    for (idx, track) in playlist.tracks.iter().enumerate() {
         let resolved = if cross_provider {
             resolve_spotify_via_search(track, |q, types| async {
                 zad_client::precall_check(Provider::Spotify, wait).await?;
@@ -421,10 +431,21 @@ async fn resolve_spotify_tracks(
             track.source_id_for("spotify").map(str::to_string)
         };
         match resolved {
-            Some(id) => ids.push(id),
+            Some(id) => {
+                output::detail(&format!(
+                    "[{}/{}] resolved `{}` → {}",
+                    idx + 1,
+                    total,
+                    track_label(track),
+                    id
+                ));
+                ids.push(id);
+            }
             None => {
                 output::warn(&format!(
-                    "could not resolve `{}` on Spotify",
+                    "[{}/{}] could not resolve `{}` on Spotify",
+                    idx + 1,
+                    total,
                     track_label(track)
                 ));
                 unresolved += 1;
@@ -483,7 +504,9 @@ async fn run_ymusic(
     state_path: &Path,
 ) -> Result<(ImportReport, ImportState)> {
     use zad::service::ymusic::client::Privacy;
-    use zad::service::ymusic::{AddPlaylistItemRequest, CreatePlaylistRequest, PlaylistsRequest};
+    use zad::service::ymusic::{
+        AddPlaylistItemRequest, CreatePlaylistRequest, PlaylistsRequest, SearchRequest,
+    };
 
     let client = zad_client::load_ymusic_all()?;
 
@@ -543,39 +566,26 @@ async fn run_ymusic(
             continue;
         }
 
-        let prior = state.get(&name).cloned();
-        let (resolved_ids, unresolved) = match &prior {
-            Some(s) if !s.resolved_track_ids.is_empty() => {
-                output::detail(&format!(
-                    "reusing {} resolved videos from prior run ({} unresolved)",
-                    s.resolved_track_ids.len(),
-                    s.unresolved_count,
-                ));
-                (s.resolved_track_ids.clone(), s.unresolved_count)
-            }
-            _ => {
-                output::action(&format!("resolving {} tracks", playlist.tracks.len()));
-                resolve_ymusic_tracks(&client, &playlist, cross_provider, wait).await?
-            }
-        };
-        report.tracks_unresolved += unresolved;
-
         if dry_run {
             output::detail(&format!(
-                "would create `{name}` with {} videos",
-                resolved_ids.len(),
+                "would create `{name}` and add up to {} videos",
+                playlist.tracks.len(),
             ));
             report.playlists_created += 1;
-            report.tracks_added += resolved_ids.len();
+            report.tracks_added += playlist.tracks.len();
             continue;
         }
 
+        let prior = state.get(&name).cloned();
         let privacy = if playlist.public.unwrap_or(false) {
             Privacy::Public
         } else {
             Privacy::Private
         };
 
+        // Create or reuse the target playlist *before* resolving any
+        // tracks, so a quota-bounded run resolves+inserts one track at
+        // a time rather than burning the entire budget on searches.
         let target_id = match prior.as_ref().and_then(|s| s.target_id.clone()) {
             Some(id) => {
                 output::detail(&format!("reusing prior playlist id `{id}`"));
@@ -594,8 +604,9 @@ async fn run_ymusic(
                             PlaylistState {
                                 status: PlaylistStatus::InProgress,
                                 target_id: Some(p.id.clone()),
-                                resolved_track_ids: resolved_ids.clone(),
-                                unresolved_count: unresolved,
+                                resolved_track_ids: Vec::new(),
+                                tracks_processed: 0,
+                                unresolved_count: 0,
                                 tracks_added: 0,
                                 tracks_failed: 0,
                             },
@@ -624,77 +635,157 @@ async fn run_ymusic(
             }
         };
 
-        let already_added = prior.as_ref().map(|s| s.tracks_added).unwrap_or(0);
-        let prior_failed = prior.as_ref().map(|s| s.tracks_failed).unwrap_or(0);
-        let remaining: Vec<&String> = resolved_ids.iter().skip(already_added).collect();
-        if already_added > 0 {
+        let mut resolved_ids = prior
+            .as_ref()
+            .map(|s| s.resolved_track_ids.clone())
+            .unwrap_or_default();
+        let cursor_start = prior.as_ref().map(|s| s.tracks_processed).unwrap_or(0);
+        let mut tracks_processed = cursor_start;
+        let mut unresolved = prior.as_ref().map(|s| s.unresolved_count).unwrap_or(0);
+        let mut tracks_added = prior.as_ref().map(|s| s.tracks_added).unwrap_or(0);
+        let mut tracks_failed = prior.as_ref().map(|s| s.tracks_failed).unwrap_or(0);
+        let total_tracks = playlist.tracks.len();
+
+        if cursor_start > 0 {
             output::detail(&format!(
-                "{already_added} of {} videos already added in a prior run; \
-                 continuing with {} remaining",
-                resolved_ids.len(),
-                remaining.len(),
+                "resuming at track {}/{} ({tracks_added} added, {unresolved} unresolved, \
+                 {tracks_failed} failed)",
+                cursor_start + 1,
+                total_tracks,
             ));
         }
 
-        let mut added_now = 0usize;
-        let mut failed_now = 0usize;
-        let mut hit_rate_limit: Option<zad::ZadError> = None;
-        for video_id in remaining {
+        let mut bail_reason: Option<(&'static str, zad::ZadError)> = None;
+        for (offset, track) in playlist.tracks.iter().skip(cursor_start).enumerate() {
+            let idx = cursor_start + offset;
+            let label = track_label(track);
+
+            // Stage 1 — resolve the source track to a video id.
+            let resolved = if cross_provider {
+                let search_outcome = resolve_ymusic_via_search(track, |q| async {
+                    zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
+                    let req = SearchRequest::new(q, vec!["video".into()], 1).map_err(map_zad)?;
+                    let res = client.search(req).await.map_err(map_zad)?;
+                    Ok(res
+                        .into_iter()
+                        .next()
+                        .and_then(|item| item.id.and_then(|id| id.video_id)))
+                })
+                .await;
+                match search_outcome {
+                    Ok(id) => id,
+                    Err(e) => {
+                        if anyhow_is_rate_limited(&e) {
+                            bail_reason = Some((
+                                "search",
+                                zad::ZadError::Service {
+                                    name: "ymusic",
+                                    message: format!("{e}"),
+                                },
+                            ));
+                            break;
+                        }
+                        return Err(e);
+                    }
+                }
+            } else {
+                track.source_id_for("ymusic").map(str::to_string)
+            };
+
+            let Some(video_id) = resolved else {
+                output::warn(&format!(
+                    "[{}/{}] could not resolve `{label}` on YouTube Music",
+                    idx + 1,
+                    total_tracks,
+                ));
+                unresolved += 1;
+                tracks_processed = idx + 1;
+                persist_progress(
+                    &mut state,
+                    state_path,
+                    &name,
+                    &target_id,
+                    &resolved_ids,
+                    tracks_processed,
+                    unresolved,
+                    tracks_added,
+                    tracks_failed,
+                    PlaylistStatus::InProgress,
+                );
+                continue;
+            };
+
+            output::detail(&format!(
+                "[{}/{}] resolved `{label}` → {video_id}",
+                idx + 1,
+                total_tracks,
+            ));
+            resolved_ids.push(video_id.clone());
+
+            // Stage 2 — add it to the target playlist immediately.
             let req = AddPlaylistItemRequest::new(target_id.clone(), video_id.clone())
                 .map_err(map_zad)?;
             zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
             match client.add_playlist_item(req).await {
                 Ok(_) => {
-                    added_now += 1;
-                    if (already_added + added_now).is_multiple_of(10) {
-                        persist_progress(
-                            &mut state,
-                            state_path,
-                            &name,
-                            &target_id,
-                            &resolved_ids,
-                            unresolved,
-                            already_added + added_now,
-                            prior_failed + failed_now,
-                            PlaylistStatus::InProgress,
-                        );
-                    }
+                    tracks_added += 1;
+                    output::detail(&format!(
+                        "[{}/{}] added `{label}` → `{name}`",
+                        idx + 1,
+                        total_tracks,
+                    ));
                 }
                 Err(e) => {
                     if is_rate_limit_error(&e) {
-                        hit_rate_limit = Some(e);
+                        bail_reason = Some(("add_playlist_item", e));
                         break;
                     }
-                    output::warn(&format!("`add_playlist_item` failed for `{name}`: {e}"));
-                    failed_now += 1;
+                    output::warn(&format!(
+                        "[{}/{}] `add_playlist_item` failed for `{label}`: {e}",
+                        idx + 1,
+                        total_tracks,
+                    ));
+                    tracks_failed += 1;
                 }
             }
-        }
 
-        let total_added = already_added + added_now;
-        let total_failed = prior_failed + failed_now;
-
-        if let Some(e) = hit_rate_limit {
+            tracks_processed = idx + 1;
             persist_progress(
                 &mut state,
                 state_path,
                 &name,
                 &target_id,
                 &resolved_ids,
+                tracks_processed,
                 unresolved,
-                total_added,
-                total_failed,
+                tracks_added,
+                tracks_failed,
                 PlaylistStatus::InProgress,
             );
-            report.tracks_added += added_now;
-            report.tracks_failed += failed_now;
-            return Err(rate_limit_bail(
-                &name,
-                "add_playlist_item",
-                e,
-                state,
+        }
+
+        let prior_added = prior.as_ref().map(|s| s.tracks_added).unwrap_or(0);
+        let prior_unresolved = prior.as_ref().map(|s| s.unresolved_count).unwrap_or(0);
+        let prior_failed = prior.as_ref().map(|s| s.tracks_failed).unwrap_or(0);
+        report.tracks_added += tracks_added.saturating_sub(prior_added);
+        report.tracks_unresolved += unresolved.saturating_sub(prior_unresolved);
+        report.tracks_failed += tracks_failed.saturating_sub(prior_failed);
+
+        if let Some((op, err)) = bail_reason {
+            persist_progress(
+                &mut state,
                 state_path,
-                &report,
+                &name,
+                &target_id,
+                &resolved_ids,
+                tracks_processed,
+                unresolved,
+                tracks_added,
+                tracks_failed,
+                PlaylistStatus::InProgress,
+            );
+            return Err(rate_limit_bail(
+                &name, op, err, state, state_path, &report,
             ));
         }
 
@@ -704,60 +795,20 @@ async fn run_ymusic(
             &name,
             &target_id,
             &resolved_ids,
+            total_tracks,
             unresolved,
-            total_added,
-            total_failed,
+            tracks_added,
+            tracks_failed,
             PlaylistStatus::Completed,
         );
         report.playlists_created += 1;
-        report.tracks_added += added_now;
-        report.tracks_failed += failed_now;
         output::status(&format!(
-            "created `{name}` with {total_added}/{} videos ({unresolved} unresolved, {total_failed} failed adds)",
-            resolved_ids.len(),
+            "created `{name}` with {tracks_added}/{total_tracks} videos \
+             ({unresolved} unresolved, {tracks_failed} failed adds)",
         ));
     }
 
     Ok((report, state))
-}
-
-async fn resolve_ymusic_tracks(
-    client: &zad::service::ymusic::Ymusic,
-    playlist: &Playlist,
-    cross_provider: bool,
-    wait: bool,
-) -> Result<(Vec<String>, usize)> {
-    use zad::service::ymusic::SearchRequest;
-
-    let mut ids: Vec<String> = Vec::with_capacity(playlist.tracks.len());
-    let mut unresolved = 0usize;
-    for track in &playlist.tracks {
-        let resolved = if cross_provider {
-            resolve_ymusic_via_search(track, |q| async {
-                zad_client::precall_check(Provider::YouTubeMusic, wait).await?;
-                let req = SearchRequest::new(q, vec!["video".into()], 1).map_err(map_zad)?;
-                let res = client.search(req).await.map_err(map_zad)?;
-                Ok(res
-                    .into_iter()
-                    .next()
-                    .and_then(|item| item.id.and_then(|id| id.video_id)))
-            })
-            .await?
-        } else {
-            track.source_id_for("ymusic").map(str::to_string)
-        };
-        match resolved {
-            Some(id) => ids.push(id),
-            None => {
-                output::warn(&format!(
-                    "could not resolve `{}` on YouTube Music",
-                    track_label(track)
-                ));
-                unresolved += 1;
-            }
-        }
-    }
-    Ok((ids, unresolved))
 }
 
 async fn resolve_ymusic_via_search<F, Fut>(track: &Track, mut search: F) -> Result<Option<String>>
@@ -786,6 +837,7 @@ fn persist_progress(
     name: &str,
     target_id: &str,
     resolved_ids: &[String],
+    tracks_processed: usize,
     unresolved: usize,
     tracks_added: usize,
     tracks_failed: usize,
@@ -797,6 +849,7 @@ fn persist_progress(
             status,
             target_id: Some(target_id.to_string()),
             resolved_track_ids: resolved_ids.to_vec(),
+            tracks_processed,
             unresolved_count: unresolved,
             tracks_added,
             tracks_failed,

@@ -302,16 +302,16 @@ fn load_spotify_credentials() -> Result<SpotifyCredentials> {
 }
 
 fn load_ymusic_credentials() -> Result<YmusicCredentials> {
-    let client_id =
-        load_keychain_or_hint("ymusic", "client-id", "spotifai auth --provider ymusic")?;
-    let client_secret =
-        load_keychain_or_hint("ymusic", "client-secret", "spotifai auth --provider ymusic")?;
+    // InnerTube uses Google's TVHTML5 client with constants compiled
+    // into zad, so the refresh token is the only per-user secret.
+    // `client_id` / `client_secret` are passed as empty strings;
+    // `YmusicHttp` ignores them.
     let refresh_token =
         load_keychain_or_hint("ymusic", "refresh", "spotifai auth --provider ymusic")?;
     let store = KeychainRefreshStore::new(secrets::account("ymusic", "refresh", Scope::Global));
     Ok(YmusicCredentials {
-        client_id,
-        client_secret,
+        client_id: String::new(),
+        client_secret: String::new(),
         refresh_token,
         refresh_token_store: Some(Arc::new(store)),
     })

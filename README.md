@@ -23,7 +23,7 @@ A Rust CLI for managing your music library and playlists via natural-language qu
 | Provider slug | Display name  | Notes |
 |---|---|---|
 | `spotify` (default) | Spotify       | OAuth 2.0 PKCE, one developer app per user. |
-| `ymusic`            | YouTube Music | Google OAuth 2.0 Desktop-app credentials, talks to YouTube Data API v3. |
+| `ymusic`            | YouTube Music | Google OAuth 2.0 device flow against the shared TVHTML5 client — no developer app to create. Runtime calls go to YouTube Music's internal InnerTube backend, not the Data API. |
 
 The provider abstraction is built so a third backend (Tidal, Apple Music, …) is one new variant in `src/providers.rs` plus the matching policy/example block.
 
@@ -31,7 +31,7 @@ The provider abstraction is built so a third backend (Tidal, Apple Music, …) i
 
 - Rust stable (≥ 1.88) and Cargo — install via [rustup](https://rustup.rs/)
 - For Spotify: a [Spotify developer app](https://developer.spotify.com/dashboard) — note your **Client ID** and add `http://127.0.0.1` as a redirect host
-- For YouTube Music: a [Google Cloud OAuth 2.0 Desktop client](https://console.cloud.google.com/) with the YouTube Data API v3 enabled — note your **Client ID** and **Client secret**
+- For YouTube Music: nothing to set up beforehand — `spotifai auth --provider ymusic` walks Google's OAuth 2.0 device flow against the shared TVHTML5 client, so there is no Google Cloud project or per-user OAuth client to register
 
 ## Install
 
@@ -106,8 +106,9 @@ spotifai export --provider spotify | spotifai import --provider ymusic
 
 First-time setup is a one-off — run `spotifai install` (scaffolds and
 signs the per-provider permissions files in `~/.spotifai/permissions/`)
-and `spotifai auth` (OAuth 2.0 PKCE loopback for Spotify; pass
-`--provider ymusic` for YouTube Music) before the examples above.
+and `spotifai auth` (OAuth 2.0 PKCE loopback for Spotify; `--provider ymusic`
+runs Google's OAuth device flow — print a code, paste into any browser,
+approve) before the examples above.
 
 ## Usage
 
@@ -119,10 +120,13 @@ Commands:
                      scaffold and sign every per-(provider, profile)
                      permissions file under
                      ~/.spotifai/permissions/<provider>/.
-  auth   [args…]     Run an in-process OAuth loopback flow for the
-                     active provider and store the resulting tokens
-                     in the OS keychain. Accepts --client-id,
-                     --client-secret (ymusic only), and --no-browser.
+  auth   [args…]     Register credentials for the active provider and
+                     store them in the OS keychain. Spotify uses an
+                     OAuth 2.0 PKCE loopback; YouTube Music uses
+                     Google's OAuth 2.0 device flow against the shared
+                     TVHTML5 client (print a code, approve in any
+                     browser — no per-user OAuth client to register).
+                     Accepts --client-id (Spotify) and --no-browser.
   api    <args…>     Run a typed call against the active provider
                      through the in-process zad library and print
                      JSON to stdout. Grammar: search "q",
@@ -190,8 +194,10 @@ Run `spotifai help <command>` or see [`man/main.md`](man/main.md) for full flag 
 
 Provider credentials are stored in the OS keychain (under the `zad`
 service, accounts `spotify-client-id:global`, `spotify-refresh:global`,
-`ymusic-client-id:global`, `ymusic-client-secret:global`,
 `ymusic-refresh:global`). Run `spotifai auth` to (re-)register them.
+YouTube Music's runtime client uses the shared TVHTML5 OAuth client
+whose `client_id` / `client_secret` ship inside zad, so only the
+refresh token is per-user.
 
 See [docs/configuration.md](docs/configuration.md) for the spotifai-side reference and [docs/export_schema.md](docs/export_schema.md) for the export/import envelope schema.
 
@@ -204,8 +210,8 @@ See [`examples/`](examples/) for runnable shell script demos.
 _Common failure modes and fixes._
 
 - **`spotifai auth` hangs or fails (Spotify)** — confirm your Spotify app dashboard has `https://127.0.0.1` registered as an allowed redirect host. spotifai's loopback listener picks a random port and terminates TLS in-process with a per-session self-signed certificate; Spotify accepts any port on `127.0.0.1` once the host is registered.
-- **`spotifai auth --provider ymusic` rejects the credential** — make sure the YouTube Data API v3 is enabled on the Google Cloud project and that your Google account is on the OAuth consent screen's test-user list while the app is in testing.
-- **"missing credentials" from `spotifai api`** — run `spotifai auth` (Spotify) or `spotifai auth --provider ymusic` (YouTube Music) to register a Client ID and refresh token in the OS keychain.
+- **`spotifai auth --provider ymusic` times out** — the device-flow user code expires after ~10 minutes. Re-run the command and finish the approval more promptly. If you're seeing repeated `authorization_pending` traces in the debug log, that's expected during the polling window; only `expired_token` is a hard failure.
+- **"missing credentials" from `spotifai api`** — run `spotifai auth` (Spotify) or `spotifai auth --provider ymusic` (YouTube Music) to register a refresh token in the OS keychain.
 - **Agent gives wrong results** — use `-v` to inspect reasoning steps and refine your query.
 
 ## Documentation

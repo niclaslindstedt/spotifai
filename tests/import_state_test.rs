@@ -89,6 +89,7 @@ fn save_and_load_round_trip() {
             status: PlaylistStatus::Completed,
             target_id: Some("PLxxx".into()),
             resolved_track_ids: vec!["a".into(), "b".into(), "c".into()],
+            tracks_processed: 4,
             unresolved_count: 1,
             tracks_added: 3,
             tracks_failed: 0,
@@ -166,6 +167,7 @@ fn counts_aggregates_per_status_and_track_totals() {
             status: PlaylistStatus::Completed,
             target_id: Some("1".into()),
             resolved_track_ids: vec!["x".into(); 5],
+            tracks_processed: 6,
             unresolved_count: 1,
             tracks_added: 5,
             tracks_failed: 0,
@@ -177,6 +179,7 @@ fn counts_aggregates_per_status_and_track_totals() {
             status: PlaylistStatus::InProgress,
             target_id: Some("2".into()),
             resolved_track_ids: vec!["x".into(); 10],
+            tracks_processed: 5,
             unresolved_count: 0,
             tracks_added: 4,
             tracks_failed: 1,
@@ -244,4 +247,36 @@ fn empty_state_serializes_with_empty_playlists_field() {
     let json = serde_json::to_string_pretty(&state).unwrap();
     assert!(json.contains("\"envelope_fingerprint\""));
     assert!(json.contains("\"playlists\""));
+}
+
+#[test]
+fn loads_pre_tracks_processed_state_file() {
+    // State files written before the `tracks_processed` field existed
+    // must still load — `serde(default)` lets the new cursor default
+    // to 0 so a resumed run re-processes from the top. With the resolve
+    // cache and idempotent inserts, the redo is a fast no-op.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("ymusic-old.json");
+    let legacy = r#"{
+      "envelope_fingerprint": "old",
+      "provider": "ymusic",
+      "started_at": "2026-05-01T00:00:00Z",
+      "last_updated_at": "2026-05-01T00:00:00Z",
+      "playlists": {
+        "Focus": {
+          "status": "in_progress",
+          "target_id": "PLxxx",
+          "resolved_track_ids": ["a", "b", "c"],
+          "unresolved_count": 1,
+          "tracks_added": 2,
+          "tracks_failed": 0
+        }
+      }
+    }"#;
+    std::fs::write(&path, legacy).unwrap();
+    let loaded = load(&path).expect("load").expect("present");
+    let focus = loaded.get("Focus").expect("focus playlist present");
+    assert_eq!(focus.tracks_processed, 0);
+    assert_eq!(focus.resolved_track_ids.len(), 3);
+    assert_eq!(focus.tracks_added, 2);
 }

@@ -4,8 +4,8 @@
 regardless of the source provider. `spotifai import` reads the same
 shape regardless of the target provider. Mappers in
 [`src/export_schema.rs`](../src/export_schema.rs) fold provider-
-specific responses (Spotify Web API, YouTube Data API v3) into the
-unified types defined here.
+specific responses (Spotify Web API, YouTube Music InnerTube) into
+the unified types defined here.
 
 The schema is the **public contract** between exporter and importer
 — hand-edited envelopes that follow this layout import as cleanly as
