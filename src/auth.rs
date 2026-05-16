@@ -18,8 +18,8 @@
 //! browser.
 //!
 //! On success spotifai also probes the provider's "self" endpoint
-//! (`GET /me` for Spotify, `GET /userinfo` + `my_channel` for
-//! YouTube Music) and persists the authenticated identity to
+//! (`GET /me` for Spotify, `my_channel` browse for YouTube Music)
+//! and persists the authenticated identity to
 //! `~/.spotifai/<provider>.toml`. `create_playlist` reads it back
 //! later so the agent surface does not have to re-fetch the user id
 //! on every call.
@@ -276,10 +276,12 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
 
     output::status("credentials written to OS keychain");
 
-    // Capture the channel id and email via userinfo + my_channel.
-    // Google rarely rotates refresh tokens but the probe's
-    // `access_token` path persists rotations only if a store is
-    // wired up — match the Spotify branch.
+    // Capture the channel id via my_channel. The TVHTML5 device
+    // flow only grants the `youtube` scope; OpenID Connect's
+    // userinfo endpoint rejects those tokens (HTTP 401), so identity
+    // comes from InnerTube alone. Google rarely rotates refresh
+    // tokens but the probe's `access_token` path persists rotations
+    // only if a store is wired up — match the Spotify branch.
     let probe = YmusicHttp::with_store(
         String::new(),
         String::new(),
@@ -293,19 +295,10 @@ async fn run_ymusic(opts: AuthOptions) -> Result<()> {
         )))),
     );
     let mut identity = SelfIdentity::default();
-    match probe.userinfo().await {
-        Ok(info) => {
-            identity.email = info.email;
-            identity.display_name = info.name;
-        }
-        Err(e) => output::warn(&format!("userinfo probe failed: {e}")),
-    }
     match probe.my_channel().await {
         Ok(ch) => {
             identity.channel_id = Some(ch.id.clone());
-            if identity.display_name.is_none() {
-                identity.display_name = ch.snippet.as_ref().and_then(|s| s.title.clone());
-            }
+            identity.display_name = ch.snippet.as_ref().and_then(|s| s.title.clone());
             zad_client::write_self_identity(Provider::YouTubeMusic, &identity)?;
             output::status(&format!("authenticated channel `{}`", ch.id));
         }

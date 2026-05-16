@@ -4,11 +4,12 @@
 //! are the two typed facades spotifai talks to in-process. Each one
 //! needs OAuth credentials that `spotifai auth` writes into the OS
 //! keychain (account names `spotify-client-id:global`,
-//! `spotify-refresh:global`, `ymusic-client-id:global`,
-//! `ymusic-client-secret:global`, `ymusic-refresh:global`), plus the
-//! authenticated user's identifier (Spotify user id, YouTube channel
-//! id) which `create_playlist` requires. The identifier is captured
-//! at OAuth time and persisted at `~/.spotifai/<provider>.toml`.
+//! `spotify-refresh:global`, and `ymusic-refresh:global` — the
+//! ymusic TVHTML5 client_id / client_secret are zad constants and
+//! not stored per user), plus the authenticated user's identifier
+//! (Spotify user id, YouTube channel id) which `create_playlist`
+//! requires. The identifier is captured at OAuth time and persisted
+//! at `~/.spotifai/<provider>.toml`.
 //!
 //! `with_credentials` takes a `config_path` argument that the
 //! underlying http client only uses for diagnostic strings. We pass
@@ -133,7 +134,10 @@ pub struct SelfIdentity {
     /// Optional human-readable label (display name / channel title).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// Optional email captured by the OAuth userinfo probe.
+    /// Optional email captured at auth time (Spotify `/me`). ymusic
+    /// leaves this empty — the TVHTML5 device flow does not grant
+    /// the OpenID Connect scopes needed for Google's userinfo
+    /// endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
 }
